@@ -1,0 +1,18 @@
+[package]
+name = "witness"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sha3 = { version = "0.10", default-features = false }
+nix = { version = "0.27", features = ["ioctl", "fs"], optional = true }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem"], optional = true }
+time = { version = "0.3", default-features = false, optional = true }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+heapless = { version = "0.8", default-features = false, features = ["serde"] }
+
+[features]
+default = ["std"]
+std = ["sha3/std", "serde/std", "hex/std", "nix", "rcgen", "time", "time/std", "rcgen/pem", "rcgen/crypto", "rcgen/ring", "alloc"]
+alloc = ["time", "rcgen", "time/alloc", "hex/alloc", "serde/alloc", "rcgen/crypto", "rcgen/ring", "rcgen/pem"]
