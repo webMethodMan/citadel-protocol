@@ -2,3 +2,6 @@
 .env
 **/*.rs.bk
 citadel.toml
+target/
+.latest_mrtd
+.latest_wasm_hash

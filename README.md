@@ -10,20 +10,23 @@ In an era of autonomous agents, the Citadel Protocol acts as a deterministic gat
 
 1.  **Intercept**: The Proxy receives an MCP JSON — RPC request via an Axum — based HTTP gateway.
 2.  **Validate Intent**: The `AttestationPlugin` (e.g., Hedera) checks the request's RIOM hash against a list of authorized tool intents loaded from `citadel.toml`.
-3.  **Hardware Gate**: If authorized, the `witness` layer triggers the Silicon Provider to generate a hardware report (TDREPORT).
-4.  **TEE — as — CA**: The witness issues an **Ephemeral Identity** — a short — lived (60 — second) X.509 certificate and private key bound to the specific intent hash. This process occurs within the secure enclave.
-5.  **Authorize**: The client receives the notarized identity, which it can use to authenticate against protected legacy resources.
+3.  **Hardware Gate**: If authorized, the `witness-core` layer triggers the Silicon Provider to generate a hardware report (TDREPORT).
+4.  **TEE — as — CA**: The witness-core issues an **Ephemeral Identity** — a short — lived (60 — second) X.509 certificate and private key bound to the specific intent hash. This process occurs within the secure enclave.
+5.  **Authorize**: The client receives the notarized identity in the JSON — RPC `result`, which it can then use to authenticate against protected legacy resources.
 
 ## Modules — and — Plugins
 
-### 1. `witness` (The Hardware Layer)
+### 1. `witness-core` (The Hardware Layer)
 A high — assurance, **"Clean Room" `no_std`** crate responsible for managing Silicon Truth.
-*   **Sovereign Architecture**: Compiled with `#![no_std]` to minimize attack surface. It uses `heapless` for stack — allocated metadata and is designed for execution in restricted environments (e.g., TEE enclaves).
+*   **Sovereign Architecture**: Compiled with `#![no_std]` to minimize attack surface.
 *   **Morpheme (A2A)**: The "Agent — to — Agent" morpheme collapses tool IDs and metadata into a 32 — byte "Silicon Weld."
-*   **SiliconProvider**: Abstract HAL for hardware vendors (Intel TDX, SEV — SNP, or Mock). OS — dependent ioctls for Intel TDX are isolated behind the `std` feature.
-*   **TEE — as — CA**: Generates short — lived cryptographic identities bound to the hardware — verified intent.
+*   **SiliconProvider**: Abstract HAL for hardware vendors.
 
-### 2. `proxy` (The Application Gate)
+### 2. `witness-tdx` (Intel TDX Provider)
+A specialized provider crate for Intel TDX.
+*   **Isolation**: Encapsulates Linux — specific `ioctl` logic and hardware report generation for Intel TDX environments.
+
+### 3. `proxy` (The Application Gate)
 The network — facing gateway that governs the "Silicon Airlock."
 *   **Axum Gateway**: Listens on `127.0.0.1:9000` for MCP tool calls.
 *   **HederaPlugin**: Performs the "Deterministic Floor" check by validating hashes against configured `authorized_tools`.
@@ -49,11 +52,18 @@ authorized_tools = [
 
 ### Building the Project
 ```bash
-# Build the entire workspace (standard gateway mode)
+# Standard workspace build
 cargo build --workspace
 
-# Verify the witness crate in its Sovereign (no_std) state
-cargo build -p witness --no-default-features
+# Verify Sovereign (no_std) witness-core state
+cargo build -p witness-core --no-default-features
+```
+
+### Sovereign Build — and — Release
+The `release.sh` script automates the high — assurance build process, extracts the binary's MRTD (Measurement), and creates a hardware — attested Git tag.
+
+```bash
+./release.sh
 ```
 
 ### Running the Integration Harness

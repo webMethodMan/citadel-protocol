@@ -8,7 +8,7 @@ The Citadel Protocol is a **Hardware — Enforced Agentic Strangler**. It provid
 ## 2. Core Architecture
 The project is divided into two primary Rust crates:
 
-### A. `witness` (The Hardware Layer)
+### A. `witness-core / witness-tdx` (The Hardware Layer)
 * **Purpose:** Interface with Intel TDX (`/dev/tdx_guest`) and manage Silicon Truth.
 * **Key Trait: `Morpheme`:** A pluggable interface for "Intents." It collapses tool names and metadata into a 32-byte hash.
 * **Key Trait: `SiliconProvider`:** An abstraction for hardware vendors (TDX, SEV-SNP, or Mock).

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use witness::WitnessError;
+use witness_core::WitnessError;
 
 #[async_trait]
 pub trait AttestationPlugin: Send + Sync {

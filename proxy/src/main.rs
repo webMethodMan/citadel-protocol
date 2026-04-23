@@ -1,9 +1,13 @@
-use witness::{Morpheme, A2AMorpheme, verify_and_gate, WitnessError, SiliconProvider, TdxProvider};
+use witness_core::{Morpheme, A2AMorpheme, verify_and_gate, WitnessError, SiliconProvider};
+#[cfg(any(not(target_os = "linux"), target_family = "wasm", not(feature = "tdx")))]
+use witness_core::provider::{MockProvider};
+#[cfg(feature = "tdx")]
+use witness_tdx::{TdxProvider};
+
 use serde::{Deserialize, Serialize};
 use std::io::{self};
 use std::fs;
 use std::sync::Arc;
-use async_trait::async_trait;
 use axum::{routing::post, Json, Router, extract::State};
 use tokio::net::TcpListener;
 
@@ -21,10 +25,10 @@ impl ProxyConfig {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 pub trait AttestationPlugin: Send + Sync {
     async fn validate_intent(&self, riom_hash: &[u8; 32]) -> Result<(), WitnessError>;
-    async fn notarize_report(&self, report: &[u8; 1024]) -> Result<(), WitnessError>;
+    async fn notarize_report(&self, report: &witness_core::AttestationPayload) -> Result<(), WitnessError>;
 }
 
 pub struct HederaPlugin { 
@@ -32,7 +36,7 @@ pub struct HederaPlugin {
     pub authorized_hashes: Vec<[u8; 32]>,
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl AttestationPlugin for HederaPlugin {
     async fn validate_intent(&self, riom_hash: &[u8; 32]) -> Result<(), WitnessError> {
         eprintln!("HEDERA_PLUGIN: Validating RIOM [{:02x?}]", &riom_hash[..4]);
@@ -44,12 +48,22 @@ impl AttestationPlugin for HederaPlugin {
             Err(WitnessError::SecurityViolation)
         }
     }
-    async fn notarize_report(&self, _report: &[u8; 1024]) -> Result<(), WitnessError> { Ok(()) }
+    async fn notarize_report(&self, _report: &witness_core::AttestationPayload) -> Result<(), WitnessError> { Ok(()) }
 }
 
-pub struct SecurityFactory;
-impl SecurityFactory {
-    pub fn create_silicon_provider() -> Box<dyn SiliconProvider> { Box::new(TdxProvider) }
+pub struct ProviderFactory;
+impl ProviderFactory {
+    pub fn create_silicon_provider() -> Box<dyn SiliconProvider> {
+        #[cfg(all(target_os = "linux", not(target_family = "wasm"), feature = "tdx"))]
+        {
+            Box::new(TdxProvider)
+        }
+        #[cfg(any(not(target_os = "linux"), target_family = "wasm", not(feature = "tdx")))]
+        {
+            Box::new(MockProvider)
+        }
+    }
+
     pub fn create_attestation_plugin(config: &ProxyConfig) -> Box<dyn AttestationPlugin> {
         let authorized_hashes = config.authorized_tools.iter()
             .map(|h| {
@@ -134,7 +148,7 @@ async fn mcp_handler(
             let intent = A2AMorpheme {
                 tool_id: tool_name,
                 identity: [0x22; 32], 
-                metadata: [0x11; 32],
+                resource: [0x11; 32],
             };
             
             let riom_hash = match intent.generate_auth_hash() {
@@ -146,18 +160,18 @@ async fn mcp_handler(
                     id: req.id,
                 }),
             };
-            let cert_hash = generate_session_cert_hash();
+            let _cert_hash = generate_session_cert_hash();
 
             match state.plugin.validate_intent(&riom_hash).await {
                 Ok(_) => {
-                    match verify_and_gate(&*state.silicon, &intent, &riom_hash, &cert_hash) {
+                    match verify_and_gate(&*state.silicon, &intent, &riom_hash) {
                         Ok(identity) => {
                             if req.method == "citadel_shutdown" {
                                 state.token.cancel();
                             }
                             Json(McpResponse {
                                 jsonrpc: "2.0".to_string(),
-                                result: Some(serde_json::to_value(identity).unwrap()),
+                                result: Some(serde_json::to_value(hex::encode(identity)).unwrap()),
                                 error: None,
                                 id: req.id,
                             })
@@ -199,8 +213,8 @@ async fn main() -> io::Result<()> {
 
     let golden_bytes = hex::decode(&config.golden_mrtd).expect("Invalid Hex in golden_mrtd");
 
-    let plugin = SecurityFactory::create_attestation_plugin(&config);
-    let silicon = SecurityFactory::create_silicon_provider();
+    let plugin = ProviderFactory::create_attestation_plugin(&config);
+    let silicon = ProviderFactory::create_silicon_provider();
     let token = tokio_util::sync::CancellationToken::new();
 
     if let Err(_) = verify_witness_integrity(&*silicon, &golden_bytes).await {

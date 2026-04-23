@@ -1,26 +1,21 @@
 [package]
 name = "proxy"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[features]
+tdx = ["witness-tdx"]
 
 [dependencies]
-# Internal Hardware Layer
-witness = { path = "../witness", default-features = true }
-
-# Core Runtime & Networking
-tokio = { version = "1.36", features = ["full", "macros"] }
-tokio-util = "0.7"
-axum = { version = "0.7", features = ["macros"] }
-tower-http = { version = "0.5", features = ["cors"] }
-futures-util = "0.3"
-
-# Serialization & Config
+witness-core = { path = "../witness-core" }
+witness-tdx = { path = "../witness-tdx", optional = true }
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "json"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+dotenvy = "0.15"
 toml = "0.8"
 hex = "0.4"
-dotenvy = "0.15"
-
-# Governance & External Services
-hedera = "0.20.0"
 async-trait = "0.1"
+tokio-util = "0.7"
