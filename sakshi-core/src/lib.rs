@@ -5,7 +5,7 @@ pub mod types;
 pub mod provider;
 
 pub use types::{Error, Mudra};
-pub use sankalpa::{Sankalpa, SankalpaPayload};
+pub use sankalpa::{Sankalpa, SankalpaPayload, SankalpaHasher, Sha3_256Hasher, SankalpaVerifier, DefaultHashVerifier};
 
 #[cfg(not(feature = "std"))]
 #[panic_handler]
@@ -25,13 +25,11 @@ pub trait SiliconProvider: Send + Sync {
 
 pub fn verify_and_gate(
     _provider: &dyn SiliconProvider,
+    verifier: &dyn SankalpaVerifier,
     intent: &dyn Sankalpa,
-    ledger_hash: &[u8; 32],
+    proof: &[u8],
 ) -> Result<Mudra, Error> {
-    let hash = intent.generate_auth_hash()?;
-    if hash != *ledger_hash {
-        return Err(Error::SecurityViolation);
-    }
+    verifier.verify(intent, proof)?;
     // Return a Mudra (cryptographic seal)
     Ok([0u8; 32])
 }

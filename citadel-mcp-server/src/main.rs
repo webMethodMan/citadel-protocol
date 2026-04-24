@@ -1,6 +1,6 @@
 mod policy;
 
-use sakshi_core::{Sankalpa, SankalpaPayload, verify_and_gate, Error, SiliconProvider};
+use sakshi_core::{Sankalpa, SankalpaPayload, verify_and_gate, Error, SiliconProvider, SankalpaHasher, Sha3_256Hasher, DefaultHashVerifier};
 #[cfg(any(not(target_os = "linux"), target_family = "wasm", not(feature = "tdx")))]
 // use sakshi_core::provider::{MockProvider};
 #[cfg(feature = "tdx")]
@@ -11,8 +11,11 @@ use std::io::{self};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use axum::{routing::post, Json, Router, extract::State};
+use axum::{routing::post, Json, Router, extract::State, extract::DefaultBodyLimit};
 use tokio::net::TcpListener;
+use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
+use futures::{StreamExt, SinkExt};
+use tokio::io::{stdin, stdout};
 use crate::policy::{JsonFilePolicy, GatewayConfig};
 
 #[derive(Deserialize, Debug, Clone)]
@@ -63,7 +66,7 @@ impl ProviderFactory {
 
         // 2. Hardware Found -> Lock the Airlock
         if has_tdx {
-            println!("--- SILICON ENGAGED: Intel TDX detected ---");
+            eprintln!("--- SILICON ENGAGED: Intel TDX detected ---");
             // Box::new(TdxProvider) 
 
             let mut tdx_stub = [0u8; 48]; tdx_stub[0] = 0x0d;
@@ -76,7 +79,7 @@ impl ProviderFactory {
                 panic!("FATAL: Production mode requires a hardware root of trust. No silicon detected. Sealing airlock.");
             }
             "development" => {
-                println!("--- WARNING: No silicon detected. Falling back to MockProvider for development ---");
+                eprintln!("--- WARNING: No silicon detected. Falling back to MockProvider for development ---");
                 let mut simulated_mrtd = [0u8; 48];
                 simulated_mrtd[0] = 0x0d;
                 simulated_mrtd[1] = 0x01;
@@ -106,22 +109,17 @@ impl ProviderFactory {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Serialize)]
 struct McpRequest {
-    #[allow(dead_code)]
     jsonrpc: String,
-    #[allow(dead_code)]
     method: String,
-    #[allow(dead_code)]
     params: Option<McpParams>,
-    #[allow(dead_code)]
     id: serde_json::Value,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Serialize)]
 struct McpParams {
     tool_name: Option<String>,
-    #[allow(dead_code)]
     #[serde(default)]
     arguments: serde_json::Value,
 }
@@ -157,14 +155,12 @@ async fn verify_sakshi_integrity(silicon: &dyn SiliconProvider, golden: &[u8]) -
 struct AppState {
     plugin: Box<dyn AttestationPlugin>,
     silicon: Box<dyn SiliconProvider>,
+    hasher: Box<dyn SankalpaHasher>,
     token: tokio_util::sync::CancellationToken,
     config: AppConfig,
 }
 
-async fn mcp_handler(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<McpRequest>,
-) -> Json<McpResponse> {
+async fn process_mcp_request(state: Arc<AppState>, req: McpRequest) -> McpResponse {
     match req.method.as_str() {
         "execute_mcp_tool" | "citadel_shutdown" => {
             let tool_name = req.params.as_ref()
@@ -177,7 +173,6 @@ async fn mcp_handler(
             if mudra_bytes.len() == 32 {
                 mudra.copy_from_slice(&mudra_bytes);
             } else {
-                // Fallback or pad if needed, but here we expect 32 bytes or 1 byte repeated
                 for i in 0..32 { mudra[i] = mudra_bytes[0]; }
             }
 
@@ -196,54 +191,97 @@ async fn mcp_handler(
                 resource,
             };
             
-            let riom_hash = match intent.generate_auth_hash() {
+            let riom_hash = match intent.generate_auth_hash(&*state.hasher) {
                 Ok(h) => h,
-                Err(_) => return Json(McpResponse {
+                Err(_) => return McpResponse {
                     jsonrpc: "2.0".to_string(),
                     result: None,
                     error: Some(McpError { code: -32603, message: "Internal Hash Error".to_string() }),
                     id: req.id,
-                }),
+                },
             };
-            let _cert_hash = generate_session_cert_hash();
 
             match state.plugin.validate_intent(&riom_hash).await {
                 Ok(_) => {
-                    match verify_and_gate(&*state.silicon, &intent, &riom_hash) {
+                    let verifier = DefaultHashVerifier { hasher: &*state.hasher };
+                    match verify_and_gate(&*state.silicon, &verifier, &intent, &riom_hash) {
                         Ok(mudra) => {
                             if req.method == "citadel_shutdown" {
                                 state.token.cancel();
                             }
-                            Json(McpResponse {
+                            McpResponse {
                                 jsonrpc: "2.0".to_string(),
                                 result: Some(serde_json::to_value(hex::encode(mudra)).unwrap()),
                                 error: None,
                                 id: req.id,
-                            })
+                            }
                         },
-                        Err(_) => Json(McpResponse {
+                        Err(_) => McpResponse {
                             jsonrpc: "2.0".to_string(),
                             result: None,
                             error: Some(McpError { code: -32000, message: "Hardware Fault".to_string() }),
                             id: req.id,
-                        }),
+                        },
                     }
                 },
-                Err(_) => Json(McpResponse {
+                Err(_) => McpResponse {
                     jsonrpc: "2.0".to_string(),
                     result: None,
                     error: Some(McpError { code: -32001, message: "Policy Refusal".to_string() }),
                     id: req.id,
-                }),
+                },
             }
         },
-        _ => Json(McpResponse {
+        _ => McpResponse {
             jsonrpc: "2.0".to_string(),
             result: None,
             error: Some(McpError { code: -32601, message: "Method not found".to_string() }),
             id: req.id,
-        }),
+        },
     }
+}
+
+async fn mcp_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<McpRequest>,
+) -> Json<McpResponse> {
+    Json(process_mcp_request(state, req).await)
+}
+
+async fn run_stdio_adapter(state: Arc<AppState>) -> io::Result<()> {
+    let mut reader = FramedRead::new(stdin(), LinesCodec::new_with_max_length(10 * 1024 * 1024));
+    let mut writer = FramedWrite::new(stdout(), LinesCodec::new_with_max_length(10 * 1024 * 1024));
+
+    while let Some(line_result) = reader.next().await {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("STDIO_ADAPTER: Error reading line: {}", e);
+                continue;
+            }
+        };
+
+        let req: McpRequest = match serde_json::from_str(&line) {
+            Ok(r) => r,
+            Err(e) => {
+                let err_resp = McpResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(McpError { code: -32700, message: format!("Parse error: {}", e) }),
+                    id: serde_json::Value::Null,
+                };
+                let resp_str = serde_json::to_string(&err_resp).unwrap();
+                writer.send(resp_str).await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                continue;
+            }
+        };
+
+        let resp = process_mcp_request(state.clone(), req).await;
+        let resp_str = serde_json::to_string(&resp).unwrap();
+        writer.send(resp_str).await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    }
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -280,12 +318,23 @@ async fn main() -> io::Result<()> {
     let shared_state = Arc::new(AppState {
         plugin: attestation_plugin,
         silicon: silicon_provider,
+        hasher: Box::new(Sha3_256Hasher),
         token: token.clone(),
         config: app_config,
     });
 
+    let stdio_state = shared_state.clone();
+    let stdio_token = token.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = run_stdio_adapter(stdio_state) => {},
+            _ = stdio_token.cancelled() => {},
+        }
+    });
+
     let app = Router::new()
         .route("/messages", post(mcp_handler))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .with_state(shared_state);
 
     let addr = "127.0.0.1:9000";
@@ -293,6 +342,7 @@ async fn main() -> io::Result<()> {
     
     eprintln!("--- Citadel Protocol: Factory-Initialized Gateway Active ---");
     eprintln!("--- Network Mesh Gate: OPEN | Listening on {} | PID: {} ---", addr, std::process::id());
+    eprintln!("--- Stdio Adapter: ACTIVE | NDJSON mode enabled ---");
 
     let serve_token = token.clone();
     axum::serve(listener, app)

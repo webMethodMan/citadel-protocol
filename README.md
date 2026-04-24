@@ -24,7 +24,7 @@ To understand the architecture, we employ a specific lexicon derived from Sanskr
 ## Components
 
 ### 1. `sakshi-core` (The Hardware Layer)
-The pure `no_std` core that performs the "Verify & Gate" operation. It is designed to be side-loaded into any TEE and provides the `Sankalpa` trait for pluggable intent logic.
+The pure `no_std` core that performs the "Verify & Gate" operation. It is designed to be side-loaded into any TEE and provides the `Sankalpa`, `SankalpaHasher`, and `SankalpaVerifier` traits for pluggable, PQC — ready intent logic.
 
 ### 2. `sakshi-tdx` (Intel TDX Provider)
 The Linux-native driver interface for interacting with `/dev/tdx_guest`, implementing the `SiliconProvider` trait for Intel TDX hardware.
@@ -57,9 +57,11 @@ cargo run -p citadel-mcp-server
 ```
 
 ## Milestone v1.1 Changes
+*   **PQC — Ready Abstractions**: Transitioned from hard — coded cryptographic algorithms to a trait — based architecture (`SankalpaHasher`, `SankalpaVerifier`).
+*   **Generous Payload Limits**: Increased maximum frame and body sizes to 10MB to accommodate large post — quantum signatures and complex intent payloads.
 *   **Networked Transport**: Transitioned from STDIO to a networked HTTP / SSE transport via the Gateway.
 *   **Dynamic Policy**: Moving from hard — coded hashes to a configurable `policy.json` provider.
 *   **Identity Binding**: Binding session mTLS certificates to the hardware report to support cloud — agnostic migration.
 
 ## Security
-This project is in Milestone v1.1. All sensitive tool calls MUST be notarized via the `verify_and_gate` function to ensure technical integrity and hardware — rooted trust.
+This project is in Milestone v1.1. All sensitive tool calls MUST be notarized via the `verify_and_gate` function (configured with a project — specific `SankalpaVerifier`) to ensure technical integrity and hardware — rooted trust.
