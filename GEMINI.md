@@ -28,7 +28,7 @@ The project is divided into two primary Rust crates:
     * Minimize colons in titles and subtitles.
 * **Security:** Never bypass the `verify_and_gate` function for any sensitive tool call.
 
-## 4. Current Milestone: v1.1
+## 4. Current Milestone: v0.1
 * Transitioning from hard — coded hashes to a configuration provider.
 * Moving from STDIO to a networked SSE transport via the Gateway.
 * Binding session mTLS certificates to the hardware report to support cloud — agnostic migration.

@@ -31,3 +31,16 @@ jobs:
       - name: Execute Merge Action
         run: |
           echo "Authorized by hardware seal: ${{ steps.enclave.outputs.mudra }}"
+
+      - name: Request Hardware Attestation (Notary Mode)
+        id: enclave
+        run: |
+          # The parentheses and the 'echo ""' ensure a trailing newline.
+          # The pipe itself sends an EOF when the subshell finishes.
+          MUDRA=$( (cat sankalpa.json; echo "") | /home/theo_ezell/citadel-protocol/target/release/citadel-mcp-server --mode notary )
+          
+          if [ -z "$MUDRA" ]; then
+            echo "::error::No Mudra returned. Check binary stderr."
+            exit 1
+          fi
+          echo "mudra=$MUDRA" >> $GITHUB_OUTPUT
