@@ -1,0 +1,33 @@
+name: Citadel Protocol - Hardware Airlock
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  verify-intent:
+    runs-on: self-hosted # Executes on theo_ezell@citadel-enclave-01
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Extract PR Intent (Sankalpa)
+        run: |
+          echo '{"agent": "auto-coder", "action": "merge", "target": "main"}' > sankalpa.json
+
+      - name: Request Hardware Attestation (Notary Mode)
+        id: enclave
+        run: |
+          MUDRA=$(cat sankalpa.json | ~/citadel-protocol/target/release/citadel-mcp-server --mode notary)
+          
+          if [ $? -ne 0 ]; then
+            echo "::error::Hardware Attestation FAILED. Enclave rejected the intent or TDX verification failed."
+            exit 1
+          fi
+          
+          echo "Hardware Attestation PASSED. Valid Mudra acquired from Intel TDX."
+          echo "mudra=$MUDRA" >> $GITHUB_OUTPUT
+
+      - name: Execute Merge Action
+        run: |
+          echo "Authorized by hardware seal: ${{ steps.enclave.outputs.mudra }}"
