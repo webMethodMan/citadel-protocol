@@ -1,10 +1,31 @@
 use serde::Deserialize;
 use std::fs;
+use sakshi_core::Error;
+
+use std::collections::HashMap;
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum RoutingMode {
+    Notary,
+    Proxy,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ToolPolicy {
+    pub hash: String,
+    pub mode: RoutingMode,
+    pub target_url: Option<String>,
+}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct GatewayConfig {
-    pub environment: String, // "development" or "production"
-    pub authorized_tools: Vec<String>,
+    pub environment: String, 
+    pub provider: Option<String>,
+    pub allowed_mrtds: Vec<String>,
+    pub authorized_tools: HashMap<String, ToolPolicy>,
+    pub a2a_url: Option<String>,
+    pub spiffe_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -17,21 +38,20 @@ pub struct JsonFilePolicy {
 }
 
 impl JsonFilePolicy {
-    // This loads the file at boot. If the file is missing or malformed, 
-    // the Gateway panics and refuses to start (Fail-Secure).
-    pub fn load_from_disk(path: &str) -> Self {
+    /// Loads policy with Fail-Secure Result pattern (Refactor 4)
+    pub fn load_from_disk(path: &str) -> Result<Self, Error> {
         let file_content = fs::read_to_string(path)
-            .unwrap_or_else(|_| panic!("FATAL: Missing policy file at {}", path));
+            .map_err(|_| Error::InitializationError)?;
             
         let config: GatewayConfig = serde_json::from_str(&file_content)
-            .expect("FATAL: Policy file contains invalid JSON");
+            .map_err(|_| Error::InitializationError)?;
             
-        Self { config }
+        Ok(Self { config })
     }
 }
 
 impl PolicyProvider for JsonFilePolicy {
     fn get_authorized_hashes(&self) -> Vec<String> {
-        self.config.authorized_tools.clone()
+        self.config.authorized_tools.values().map(|t| t.hash.clone()).collect()
     }
 }

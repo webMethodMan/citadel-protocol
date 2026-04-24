@@ -17,8 +17,8 @@ To understand the architecture, we employ a specific lexicon derived from Sanskr
 
 1.  **Intercept**: The **Gateway** (citadel-mcp-server) receives an MCP JSON — RPC request via a networked gateway (SSE / HTTP).
 2.  **Governance**: An `AttestationPlugin` (Deterministic Floor) checks the **Sankalpa** (intent hash) against a registry (e.g., Hedera Consensus Service).
-3.  **Hardware Gate (Sakshi)**: If authorized, the `sakshi-core` layer triggers the Silicon Provider to generate a hardware report (TDREPORT).
-4.  **TEE — as — CA**: The Sakshi issues a **Mudra** — a cryptographic seal bound to the specific intent hash and session context. 
+3.  **Hardware Gate (Sakshi)**: If authorized, the `sakshi-core` layer **welds** the intent hash (RIOM) and the session certificate hash into the Silicon Truth, triggering the Silicon Provider to generate a hardware report (TDREPORT).
+4.  **TEE — as — CA**: The Sakshi issues a **Mudra** — a cryptographic seal that notarizes the bound state of the intent and the session identity. 
 5.  **Authorize**: The client receives the notarized Mudra, which it uses to authenticate against protected resources across the **Network Mesh**.
 
 ## Components
@@ -49,11 +49,11 @@ golden_mrtd = "8c1c74cabfa8bc2eaac6051c4663ded027909400d29ef648f63e2795742813c3"
 ### Build & Run
 
 ```bash
-# Build the sovereign core
-cargo build -p sakshi-core
+# Execute the optimized release pipeline (Gateway + WASM Core)
+./release.sh
 
 # Run the Gateway
-cargo run -p citadel-mcp-server
+./target/release/citadel-mcp-server
 ```
 
 ## Milestone v1.1 Changes

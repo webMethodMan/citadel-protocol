@@ -14,3 +14,6 @@ alloc = []
 [dependencies]
 sha3 = { version = "0.10", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
+minicbor = { version = "0.24", default-features = false, features = ["derive", "alloc"] }
+async-trait = "0.1"
+lol_alloc = "0.4"

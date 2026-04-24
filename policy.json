@@ -1,7 +1,19 @@
 {
   "environment": "development",
-  "authorized_tools": [
-    "7a6f172357887330e25589f066a436cdaa80ddde2afd05e116ef77488b0da7f5",
-    "49f98aee21a4a99fb877e916876bf52c77f11afdd747eea6b0f512a172e6b718"
-  ]
+  "allowed_mrtds": [
+    "0d0000000000000000000000000000000000000000000000"
+  ],
+  "authorized_tools": {
+    "webMethods_Flow_Alpha": {
+      "hash": "a8dd1f8b061dc276403a9b2a6c354f672958071d72d6d088ca6397b59e665f27",
+      "mode": "proxy",
+      "target_url": "http://127.0.0.1:8080/invoke/alpha"
+    },
+    "shutdown": {
+      "hash": "9052e635dbade8d4a050f7d5c7ea8f481434659122beb072195daf498ebe913b",
+      "mode": "notary"
+    }
+  },
+  "a2a_url": "127.0.0.1:50051",
+  "spiffe_id": "spiffe://citadel.internal/gateway/primary"
 }

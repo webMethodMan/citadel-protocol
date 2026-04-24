@@ -5,8 +5,8 @@ set -e
 cargo clean
 
 # 2. Build Mudra Gate (Native Gateway)
-echo "Building Native Gateway (citadel-mcp-server)..."
-cargo build --release -p citadel-mcp-server
+echo "Building Native Gateway (citadel-mcp-server) with TDX support..."
+cargo build --release -p citadel-mcp-server --features tdx
 
 # 4. Build Sakshi Core (WASM)
 echo "Building Sakshi Core WASM..."

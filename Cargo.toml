@@ -1,5 +1,5 @@
 [workspace]
-members = ["sakshi-core", "sakshi-tdx", "citadel-mcp-server"]
+members = ["citadel-a2a-connector", "sakshi-core", "sakshi-tdx", "citadel-mcp-server", "citadel-a2a-connector"]
 resolver = "2"
 
 [profile.release]
