@@ -127,6 +127,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "citadel-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "dotenvy",
+ "hex",
+ "reqwest",
+ "sakshi-core",
+ "sakshi-tdx",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "toml",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -185,7 +203,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -554,9 +572,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.185"
+version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
+checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "litemap"
@@ -660,24 +678,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "proxy"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "dotenvy",
- "hex",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "toml",
- "witness-core",
- "witness-tdx",
 ]
 
 [[package]]
@@ -883,6 +883,22 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
+name = "sakshi-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sha3",
+]
+
+[[package]]
+name = "sakshi-tdx"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "sakshi-core",
+]
 
 [[package]]
 name = "serde"
@@ -1582,22 +1598,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "witness-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "sha3",
-]
-
-[[package]]
-name = "witness-tdx"
-version = "0.1.0"
-dependencies = [
- "nix",
- "witness-core",
-]
 
 [[package]]
 name = "writeable"

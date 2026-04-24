@@ -1,81 +1,65 @@
-# Citadel Protocol
+# The Citadel Protocol: Hardware — Enforced Agentic Strangler
 
-The Citadel Protocol is a **Hardware — Enforced Agentic Strangler**. It provides a "Silicon Airlock" for AI agents (MCP clients) to interact with legacy systems — such as webMethods, SQL, and enterprise APIs — only after their intent has been cryptographically notarized by a Trusted Execution Environment (TEE).
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Version: 1.1](https://img.shields.io/badge/Version-1.1-green.svg)]()
 
-## Overview
+In an era of autonomous agents, the Citadel Protocol acts as a deterministic gatekeeper — a Silicon Airlock for AI agents to interact with legacy systems only after intent has been cryptographically notarized by a Trusted Execution Environment (TEE).
 
-In an era of autonomous agents, the Citadel Protocol acts as a deterministic gatekeeper. By leveraging Intel TDX and the Model Context Protocol (MCP), it ensures that every tool call made by an AI is verified against a hardware — rooted identity and a governed policy ledger before execution.
+## The Lexicon of Citadel
 
-## How it Works
+To understand the architecture, we employ a specific lexicon derived from Sanskrit:
 
-1.  **Intercept**: The Proxy receives an MCP JSON — RPC request via an Axum — based HTTP gateway.
-2.  **Validate Intent**: The `AttestationPlugin` (e.g., Hedera) checks the request's RIOM hash against a list of authorized tool intents loaded from `citadel.toml`.
-3.  **Hardware Gate**: If authorized, the `witness-core` layer triggers the Silicon Provider to generate a hardware report (TDREPORT).
-4.  **TEE — as — CA**: The witness-core issues an **Ephemeral Identity** — a short — lived (60 — second) X.509 certificate and private key bound to the specific intent hash. This process occurs within the secure enclave.
-5.  **Authorize**: The client receives the notarized identity in the JSON — RPC `result`, which it can then use to authenticate against protected legacy resources.
+*   **Sankalpa**: The "Intention" — A 32-byte hash representing the specific tool call or action an agent intends to take.
+*   **Sakshi**: The "Witness" — The hardware-enforced layer (Intel TDX) that verifies the truth of an intent before execution.
+*   **Mudra**: The "Seal" — A cryptographic notarization (returned by the Sakshi) binding the intent to a hardware report.
 
-## Modules — and — Plugins
+## How it Works (The Gateway)
 
-### 1. `witness-core` (The Hardware Layer)
-A high — assurance, **"Clean Room" `no_std`** crate responsible for managing Silicon Truth.
-*   **Sovereign Architecture**: Compiled with `#![no_std]` to minimize attack surface.
-*   **Morpheme (A2A)**: The "Agent — to — Agent" morpheme collapses tool IDs and metadata into a 32 — byte "Silicon Weld."
-*   **SiliconProvider**: Abstract HAL for hardware vendors.
+1.  **Intercept**: The **Gateway** (citadel-mcp-server) receives an MCP JSON — RPC request via a networked gateway (SSE / HTTP).
+2.  **Governance**: An `AttestationPlugin` (Deterministic Floor) checks the **Sankalpa** (intent hash) against a registry (e.g., Hedera Consensus Service).
+3.  **Hardware Gate (Sakshi)**: If authorized, the `sakshi-core` layer triggers the Silicon Provider to generate a hardware report (TDREPORT).
+4.  **TEE — as — CA**: The Sakshi issues a **Mudra** — a cryptographic seal bound to the specific intent hash and session context. 
+5.  **Authorize**: The client receives the notarized Mudra, which it uses to authenticate against protected resources across the **Network Mesh**.
 
-### 2. `witness-tdx` (Intel TDX Provider)
-A specialized provider crate for Intel TDX.
-*   **Isolation**: Encapsulates Linux — specific `ioctl` logic and hardware report generation for Intel TDX environments.
+## Components
 
-### 3. `proxy` (The Application Gate)
-The network — facing gateway that governs the "Silicon Airlock."
-*   **Axum Gateway**: Listens on `127.0.0.1:9000` for MCP tool calls.
-*   **HederaPlugin**: Performs the "Deterministic Floor" check by validating hashes against configured `authorized_tools`.
-*   **SecurityFactory**: Manages the injection of hardware and policy providers based on the project configuration.
+### 1. `sakshi-core` (The Hardware Layer)
+The pure `no_std` core that performs the "Verify & Gate" operation. It is designed to be side-loaded into any TEE and provides the `Sankalpa` trait for pluggable intent logic.
 
-## Installation — and — Configuration
+### 2. `sakshi-tdx` (Intel TDX Provider)
+The Linux-native driver interface for interacting with `/dev/tdx_guest`, implementing the `SiliconProvider` trait for Intel TDX hardware.
+
+### 3. `citadel-mcp-server` (The Gateway)
+The high-performance transport adapter that handles the network boundary, policy enforcement, and the network mesh protocol.
+
+## Getting Started
 
 ### Prerequisites
-*   Rust (Edition 2024)
-*   Python 3 (for integration testing)
-*   Intel TDX — enabled environment (or Mock provider for local development)
+*   Rust 1.75+
+*   Intel TDX enabled hardware (or `MockProvider` for development)
 
 ### Configuration
-The system is configured via `citadel.toml`. Ensure your `golden_mrtd` matches your hardware's static identity.
+The system is configured via `citadel.toml` and `policy.json`. Ensure your `golden_mrtd` matches your hardware's static identity.
 
 ```toml
 # citadel.toml
-golden_mrtd = "0d0108000000000000000000"
-authorized_tools = [
-    "1d0fc3d825b822dbce293c6f8bdfacaddba89b0efa782c097bd16b58b3d343b4" # webMethods_Flow_Alpha
-]
+golden_mrtd = "8c1c74cabfa8bc2eaac6051c4663ded027909400d29ef648f63e2795742813c3"
 ```
 
-### Building the Project
-```bash
-# Standard workspace build
-cargo build --workspace
-
-# Verify Sovereign (no_std) witness-core state
-cargo build -p witness-core --no-default-features
-```
-
-### Sovereign Build — and — Release
-The `release.sh` script automates the high — assurance build process, extracts the binary's MRTD (Measurement), and creates a hardware — attested Git tag.
+### Build & Run
 
 ```bash
-./release.sh
+# Build the sovereign core
+cargo build -p sakshi-core
+
+# Run the Gateway
+cargo run -p citadel-mcp-server
 ```
 
-### Running the Integration Harness
-The integration harness simulates an MCP client attempting to authorize a legacy tool call and verifies the TEE — issued certificate.
+## Milestone v1.1 Changes
+*   **Networked Transport**: Transitioned from STDIO to a networked HTTP / SSE transport via the Gateway.
+*   **Dynamic Policy**: Moving from hard — coded hashes to a configurable `policy.json` provider.
+*   **Identity Binding**: Binding session mTLS certificates to the hardware report to support cloud — agnostic migration.
 
-```bash
-# Ensure the proxy is running in one terminal
-# cargo run -p proxy
-
-# Run the test harness
-python3 tests/integration_harness.py
-```
-
----
-**Note**: This project is currently in Milestone v1.1. All sensitive tool calls MUST be notarized via the `verify_and_gate` function to ensure technical integrity and hardware — rooted trust.
+## Security
+This project is in Milestone v1.1. All sensitive tool calls MUST be notarized via the `verify_and_gate` function to ensure technical integrity and hardware — rooted trust.

@@ -1,12 +1,11 @@
 [package]
-name = "witness-tdx"
+name = "sakshi-tdx"
 version = "0.1.0"
 edition = "2021"
 
 [features]
 default = ["std"]
-std = ["witness-core/std"]
-
+std = ["sakshi-core/std"]
 [dependencies]
-witness-core = { path = "../witness-core", default-features = false }
+sakshi-core = { path = "../sakshi-core", default-features = false }
 nix = { version = "0.29", features = ["ioctl"] }

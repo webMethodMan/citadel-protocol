@@ -1,11 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub mod morpheme;
+pub mod sankalpa;
 pub mod types;
 pub mod provider;
 
-pub use types::WitnessError;
-pub use morpheme::{Morpheme, A2AMorpheme};
+pub use types::{Error, Mudra};
+pub use sankalpa::{Sankalpa, SankalpaPayload};
 
 #[cfg(not(feature = "std"))]
 #[panic_handler]
@@ -19,24 +19,25 @@ pub struct AttestationPayload {
 }
 
 pub trait SiliconProvider: Send + Sync {
-    fn get_report(&self, report_data: [u8; 32]) -> Result<[u8; 1024], WitnessError>;
+    fn get_report(&self, report_data: [u8; 32]) -> Result<[u8; 1024], Error>;
     fn extract_mrtd(&self, report: &[u8; 1024]) -> [u8; 48];
 }
 
 pub fn verify_and_gate(
     _provider: &dyn SiliconProvider,
-    intent: &dyn Morpheme,
+    intent: &dyn Sankalpa,
     ledger_hash: &[u8; 32],
-) -> Result<[u8; 32], WitnessError> {
+) -> Result<Mudra, Error> {
     let hash = intent.generate_auth_hash()?;
     if hash != *ledger_hash {
-        return Err(WitnessError::SecurityViolation);
+        return Err(Error::SecurityViolation);
     }
+    // Return a Mudra (cryptographic seal)
     Ok([0u8; 32])
 }
 
-// Our exported reactor entry point for the Sidecar/Proxy
+// Our exported reactor entry point for the Gateway
 #[no_mangle]
-pub extern "C" fn witness_entry() {
-    // Citadel Boundary Logic
+pub extern "C" fn sakshi_entry() {
+    // Citadel Boundary Logic (Gateway)
 }

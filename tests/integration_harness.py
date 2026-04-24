@@ -24,7 +24,7 @@ def test_tool_call(name, tool_name, expected_status):
         if "result" in result:
             data = result["result"]
             if isinstance(data, dict) and "certificate" in data:
-                print("STATUS: ✅ Authorized (TEE-as-CA Identity Issued)")
+                print("STATUS: ✅ Authorized (Sakshi Mudra Issued)")
                 print(f"CERTIFICATE SUBJECT: {data.get('subject', 'Unknown')}")
                 print("PEM PREVIEW:")
                 cert_lines = data['certificate'].split('\n')
