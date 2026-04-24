@@ -204,7 +204,8 @@ async fn process_mcp_request(state: Arc<AppState>, req: McpRequest) -> McpRespon
             match state.plugin.validate_intent(&riom_hash).await {
                 Ok(_) => {
                     let verifier = DefaultHashVerifier { hasher: &*state.hasher };
-                    match verify_and_gate(&*state.silicon, &verifier, &intent, &riom_hash) {
+                    let cert_hash = generate_session_cert_hash();
+                    match verify_and_gate(&*state.silicon, &verifier, &intent, &riom_hash, &cert_hash) {
                         Ok(mudra) => {
                             if req.method == "citadel_shutdown" {
                                 state.token.cancel();

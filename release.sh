@@ -4,11 +4,7 @@ set -e
 # 1. Clean
 cargo clean
 
-# 2. Fix Gateway Warnings (Silence the unused cert_hash)
-# (Adjusting the sed path for the renamed directory)
-sed -i 's/let cert_hash =/let _cert_hash =/g' citadel-mcp-server/src/main.rs
-
-# 3. Build Mudra Gate (Native Gateway)
+# 2. Build Mudra Gate (Native Gateway)
 echo "Building Native Gateway (citadel-mcp-server)..."
 cargo build --release -p citadel-mcp-server
 

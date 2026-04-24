@@ -24,12 +24,22 @@ pub trait SiliconProvider: Send + Sync {
 }
 
 pub fn verify_and_gate(
-    _provider: &dyn SiliconProvider,
+    provider: &dyn SiliconProvider,
     verifier: &dyn SankalpaVerifier,
     intent: &dyn Sankalpa,
     proof: &[u8],
+    cert_hash: &[u8; 32],
 ) -> Result<Mudra, Error> {
     verifier.verify(intent, proof)?;
+
+    // Weld RIOM (proof) and cert_hash into the Silicon Truth (TDREPORT)
+    let mut report_data = [0u8; 32];
+    for i in 0..32 {
+        report_data[i] = proof[i % proof.len()] ^ cert_hash[i];
+    }
+
+    let _report = provider.get_report(report_data)?;
+    
     // Return a Mudra (cryptographic seal)
     Ok([0u8; 32])
 }
