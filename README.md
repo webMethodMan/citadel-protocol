@@ -21,6 +21,19 @@ Citadel enforces a **Capability — Based Admissibility Gate** to prevent the ex
 *   **Execution Velocity ($V_e$) Decay**: A telemetry metric measuring model stability. Decisions falling below the configured threshold (defined in `policy.json`) are rejected before hardware attestation.
 *   **Cryptographic Binding**: The $V_e$ decay, authority identity, and workload integrity hash are structurally bound to the intent payload and hashed together inside the TEE.
 
+## The WORM WELD (Evidence Notarization)
+
+Citadel enforces a **Fail — Closed** security posture via the `PramanaRepository`. Every transaction is notarized across multiple lifecycle stages to ensure a complete forensic audit trail:
+
+*   **SovereignEvent**: A protobuf — compatible structure containing the `stage`, `sankalpa_hash`, `ve_decay_rate`, `spiffe_id`, and stage — specific data (quotes, response hashes, or error messages).
+*   **Lifecycle Stages**:
+    *   **`AdmissibilityRefusal`**: Recorded if the intent fails the pre — hardware $V_e$ threshold check.
+    *   **`SankalpaIntent`**: Recorded upon successful hardware attestation, binding the quote to the intent.
+    *   **`ExecutionCompletion`**: Recorded after proxy execution, binding the response hash to the original intent.
+    *   **`SystemFailure`**: Recorded if an unexpected error occurs during attestation or proxying.
+*   **Hedera Consensus Service (HCS)**: The default production repository. It submits `SovereignEvents` to a public HCS Topic.
+*   **Terminal Refusal**: The gateway applies a strict **50ms timeout** on evidence submission during the Intent stage. Failure to notarize triggers a Terminal Refusal.
+
 ## The Sovereign Spine: Configuration Matrix
 
 The Citadel Gateway (`citadel-mcp-server`) operates on a three-dimensional configuration matrix to support diverse deployment environments.
@@ -40,8 +53,9 @@ The Citadel Gateway (`citadel-mcp-server`) operates on a three-dimensional confi
 
 ## How it Works (The Gateway)
 
-1.  **Intercept**: The **Gateway** receives an MCP request.
-2.  **Admissibility Check**: The system validates the telemetry block. If $V_e$ decay < `--ve-threshold`, it returns an **Admissibility Failure** (-32001).
+1.  **Bootstrap**: On startup, Citadel performs a **Hardware-Rooted Self-Attestation**. It extracts its silicon measurement (MRTD) and verifies it against the **Sovereign Anchor** on the Hedera ledger. If the measurements differ or the ledger is unreachable, the system enters **Terminal Refusal** and exits.
+2.  **Intercept**: The **Gateway** receives an MCP request.
+3.  **Admissibility Check**: The system validates the telemetry block. If $V_e$ decay < `--ve-threshold` (or the policy value), it returns an **Admissibility Failure** (-32001).
 3.  **Governance**: The system checks the **Sankalpa** against the authorized `policy.json`.
 4.  **Hardware Observation (Sakshi)**: If authorized, the `sakshi-core` layer **welds** the intent and telemetry into the Silicon Truth, triggering Intel TDX to generate a **Pramana**.
 5.  **Verification & Notarization**: The **Pramana** is verified against a `PramanaProvider` and notarized to a WORM ledger.
@@ -56,6 +70,24 @@ The Citadel Gateway (`citadel-mcp-server`) operates on a three-dimensional confi
 ### Build
 ```bash
 ./release.sh
+```
+
+### Environment Configuration (.env)
+Credential management is decoupled from policy. Create a `.env` file to configure the Hedera repository:
+
+```bash
+# Hedera Network (testnet, mainnet, or local)
+HEDERA_NETWORK=testnet
+HEDERA_TOPIC_ID=0.0.xxxxxx
+
+# Local Node Configuration (Required if HEDERA_NETWORK=local)
+HEDERA_NODE_ADDRESS=127.0.0.1:50211
+HEDERA_NODE_ACCOUNT_ID=0.0.3
+HEDERA_MIRROR_NODE_ADDRESS=127.0.0.1:5600
+
+# Hedera Operator (Secrets — Stored out-of-band)
+HEDERA_OPERATOR_ID=0.0.xxxxxx
+HEDERA_OPERATOR_KEY=302e0201...
 ```
 
 ### CLI Usage Examples

@@ -16,6 +16,7 @@ use std::io::{self};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::collections::HashMap;
 use axum::{routing::post, Json, Router, extract::State, extract::DefaultBodyLimit};
 use tokio::net::TcpListener;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
@@ -24,7 +25,7 @@ use tokio::io::{stdin, stdout};
 use crate::policy::{JsonFilePolicy, GatewayConfig};
 use clap::{Parser, ValueEnum};
 use x509_parser::prelude::*;
-use hedera::{Client, TopicId, TopicMessageSubmitTransaction};
+use hedera::{Client, TopicId, TopicMessageSubmitTransaction, AccountId, PrivateKey};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Telemetry {
@@ -34,12 +35,23 @@ pub struct Telemetry {
 }
 
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LifecycleStage {
+    AdmissibilityRefusal,
+    SankalpaIntent,
+    ExecutionCompletion,
+    SystemFailure,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SovereignEvent {
+    pub stage: LifecycleStage,
     pub sankalpa_hash: [u8; 32],
     pub ve_decay_rate: f64,
     pub spiffe_id: String,
-    pub tdx_quote: Vec<u8>,
+    pub tdx_quote: Option<Vec<u8>>,
+    pub response_hash: Option<[u8; 32]>,
+    pub error_message: Option<String>,
 }
 
 #[derive(Debug)]
@@ -60,11 +72,29 @@ pub struct HederaHcsRepository {
 
 impl HederaHcsRepository {
     pub async fn new(topic_id_str: &str) -> Result<Self, String> {
-        let client = if std::env::var("HEDERA_NETWORK").unwrap_or_default() == "mainnet" {
-            Client::for_mainnet()
-        } else {
-            Client::for_testnet()
+        let client = match std::env::var("HEDERA_NETWORK").unwrap_or_default().as_str() {
+            "mainnet" => Client::for_mainnet(),
+            "testnet" => Client::for_testnet(),
+            "local" => {
+                let node_addr = std::env::var("HEDERA_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:50211".to_string());
+                let node_id = std::env::var("HEDERA_NODE_ACCOUNT_ID").unwrap_or_else(|_| "0.0.3".to_string())
+                    .parse::<AccountId>().map_err(|e| format!("Invalid Local Node ID — {}", e))?;
+                
+                // HashMap<String, AccountId> maps Address -> NodeAccount
+                let c = Client::for_network(HashMap::from([(node_addr, node_id)]))
+                    .map_err(|e| format!("Failed to create local network — {}", e))?;
+                c.set_mirror_network(vec![std::env::var("HEDERA_MIRROR_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:5600".to_string())]);
+                c
+            },
+            _ => Client::for_testnet(),
         };
+
+        // Inject Operator from Environment (Fail-Secure)
+        if let (Ok(id), Ok(key)) = (std::env::var("HEDERA_OPERATOR_ID"), std::env::var("HEDERA_OPERATOR_KEY")) {
+            let account_id = id.parse::<AccountId>().map_err(|e| format!("Invalid Account ID — {}", e))?;
+            let private_key = key.parse::<PrivateKey>().map_err(|e| format!("Invalid Private Key — {}", e))?;
+            client.set_operator(account_id, private_key);
+        }
 
         let topic_id = topic_id_str.parse::<TopicId>().map_err(|e| e.to_string())?;
         Ok(Self { client, topic_id })
@@ -294,11 +324,19 @@ fn create_ephemeral_mtls_cert() -> Result<(Vec<u8>, [u8; 32], Option<String>), E
     Ok((identity_pem, cert_hash, Some(spiffe_uri.to_string())))
 }
 
-async fn verify_sakshi_integrity(silicon: &dyn SiliconProvider, connector: &dyn PramanaProvider) -> Result<(), Error> {
-    let report = silicon.get_report([0u8; 32])?; 
-    silicon.verify_genuineness(&report)?;
-    let identity = silicon.extract_identity(&report)?;
-    connector.verify_sakshi_integrity(&identity.measurement).await?;
+async fn perform_sovereign_bootstrap(state: &AppState) -> Result<(), Error> {
+    eprintln!("--- BOOTSTRAP: Commencing Hardware-Rooted Self-Attestation ---");
+    
+    // 1. Extract the Silicon Truth (Current Measurement)
+    let report = state.silicon.get_report([0u8; 32])?;
+    state.silicon.verify_genuineness(&report)?;
+    let identity = state.silicon.extract_identity(&report)?;
+    
+    // 2. Ledger Pulse
+    // Verify current measurement against the Sovereign Anchor on Hedera
+    state.connector.verify_sakshi_integrity(&identity.measurement).await?;
+    
+    eprintln!("--- BOOTSTRAP: Integrity Verified | Sovereign Anchor Active ---");
     Ok(())
 }
 
@@ -328,14 +366,7 @@ pub async fn perform_sakshi_attestation(
     nonce: [u8; 32],
     cert_hash: [u8; 32],
     telemetry: Telemetry,
-) -> Result<Mudra, (i32, String)> {
-    // 1. Deterministic Refusal Gate: Capability-Based Admissibility
-    if telemetry.v_e_decay < state.ve_threshold {
-        let msg = format!("Admissibility Failure — V_e decay {} below threshold {}", telemetry.v_e_decay, state.ve_threshold);
-        eprintln!("GATE_REFUSAL: {}", msg);
-        return Err((-32001, msg));
-    }
-
+) -> Result<Mudra, Error> {
     let auth_hash = state.hasher.hash(&[telemetry.authority_id.as_bytes()]);
     let integ_hash = match hex::decode(telemetry.integrity_hash.replace("0x", "")) {
         Ok(h) if h.len() == 32 => {
@@ -359,8 +390,8 @@ pub async fn perform_sakshi_attestation(
         }
     };
 
-    let intent = state.translator.translate_intent(ctx).map_err(|e| (-32000, format!("{:?}", e)))?;
-    let riom_hash = intent.generate_auth_hash(&*state.hasher).map_err(|e| (-32000, format!("{:?}", e)))?;
+    let intent = state.translator.translate_intent(ctx)?;
+    let riom_hash = intent.generate_auth_hash(&*state.hasher)?;
     
     let credential = VerifiableCredential {
         context: 0x01, issuer: [0u8; 32], valid_from: 0, valid_until: 0,
@@ -369,8 +400,7 @@ pub async fn perform_sakshi_attestation(
     let env = EnvironmentContext { current_timestamp: 0, system_state_hash: [0u8; 32] };
     
     // Sakshi Attestation: Generates the Pramana (Admissible Proof) and the Mudra (Seal)
-    let (pramana, mudra) = verify_and_gate(&*state.silicon, &*state.policy_engine, &*state.hasher, &intent, &credential, &cert_hash, &env, None)
-        .map_err(|e| (-32000, format!("Sakshi Attestation Failed: {:?}", e)))?;
+    let (pramana, mudra) = verify_and_gate(&*state.silicon, &*state.policy_engine, &*state.hasher, &intent, &credential, &cert_hash, &env, None)?;
     
     // Verify the Pramana against the PramanaProvider as requested
     let _ = state.connector.verify_pramana(&pramana).await;
@@ -383,11 +413,13 @@ pub async fn perform_sakshi_attestation(
 
 /// Structural Skeleton: Proxy Handler
 async fn handle_proxy_destination(
-    _state: &AppState,
+    state: &AppState,
     mudra: Mudra,
     target_url: &str,
     req: McpRequest,
     identity_pem: Vec<u8>,
+    telemetry: Telemetry,
+    effective_spiffe: String,
 ) -> Result<McpResponse, Error> {
     // --- PROVENANCE-BOUND MTLS FORWARDING logic ---
     // 1. Establish Identity from the ephemeral certificate and key
@@ -409,6 +441,23 @@ async fn handle_proxy_destination(
         .send().await.map_err(|_| Error::ProtocolMismatch)?;
 
     let body = resp.json().await.map_err(|_| Error::ProtocolMismatch)?;
+    
+    // 3. Final State Push: Record Execution Completion
+    let body_bytes = serde_json::to_vec(&body).unwrap_or_default();
+    let response_hash = state.hasher.hash(&[&body_bytes]);
+    
+    let event = SovereignEvent {
+        stage: LifecycleStage::ExecutionCompletion,
+        sankalpa_hash: mudra.seal,
+        ve_decay_rate: telemetry.v_e_decay,
+        spiffe_id: effective_spiffe,
+        tdx_quote: None, // Quote already logged in Intent stage
+        response_hash: Some(response_hash),
+        error_message: None,
+    };
+    
+    let _ = state.evidence_repo.append_evidence(event).await;
+
     Ok(McpResponse {
         jsonrpc: "2.0".to_string(), result: Some(body),
         provenance: Some(mudra), error: None, id: req.id,
@@ -426,6 +475,29 @@ async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> McpRes
         },
     };
     
+    // 1. Admissibility Gate Check
+    if telemetry.v_e_decay < state.ve_threshold {
+        let msg = format!("Admissibility Failure — V_e decay {} below threshold {}", telemetry.v_e_decay, state.ve_threshold);
+        eprintln!("GATE_REFUSAL: {}", msg);
+        
+        let event = SovereignEvent {
+            stage: LifecycleStage::AdmissibilityRefusal,
+            sankalpa_hash: [0u8; 32], // Hash not yet generated
+            ve_decay_rate: telemetry.v_e_decay,
+            spiffe_id: "unknown".into(),
+            tdx_quote: None,
+            response_hash: None,
+            error_message: Some(msg.clone()),
+        };
+        let repo = state.evidence_repo.clone();
+        let _ = repo.append_evidence(event).await; // Best-effort refusal record
+
+        return McpResponse {
+            jsonrpc: "2.0".to_string(), result: None, provenance: None,
+            error: Some(McpError { code: -32001, message: msg }), id: req_id,
+        };
+    }
+
     let tool_policy = match state.gateway_config.authorized_tools.get(tool_name) {
         Some(p) => p,
         None => return McpResponse {
@@ -451,12 +523,15 @@ async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> McpRes
     // Resolve matrix behavior with real SPIFFE ID and telemetry
     match perform_sakshi_attestation(&*state, tool_name, mudra_val, resource_val, spiffe_id, [0u8; 32], cert_hash, telemetry.clone()).await {
         Ok(mudra) => {
-            // Task 2: WORM WELD via PramanaRepository with 50ms timeout
+            // Task 2: WORM WELD via PramanaRepository (Intent Stage)
             let event = SovereignEvent {
-                sankalpa_hash: mudra.seal, // Using the seal as the unified intent hash for the event
+                stage: LifecycleStage::SankalpaIntent,
+                sankalpa_hash: mudra.seal,
                 ve_decay_rate: telemetry.v_e_decay,
-                spiffe_id: effective_spiffe,
-                tdx_quote: mudra.hardware_quote.clone(),
+                spiffe_id: effective_spiffe.clone(),
+                tdx_quote: Some(mudra.hardware_quote.clone()),
+                response_hash: None,
+                error_message: None,
             };
 
             let repo = state.evidence_repo.clone();
@@ -490,19 +565,45 @@ async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> McpRes
                 },
                 LogicMode::Proxy => {
                     let target = tool_policy.target_url.as_deref().unwrap_or("http://localhost:8080");
-                    match handle_proxy_destination(&*state, mudra, target, req, identity_pem).await {
+                    match handle_proxy_destination(&*state, mudra.clone(), target, req, identity_pem, telemetry.clone(), effective_spiffe.clone()).await {
                         Ok(r) => r,
-                        Err(e) => McpResponse {
-                            jsonrpc: "2.0".to_string(), result: None, provenance: None,
-                            error: Some(McpError { code: -32002, message: format!("Proxy Error: {:?}", e) }), id: req_id,
+                        Err(e) => {
+                            let event = SovereignEvent {
+                                stage: LifecycleStage::SystemFailure,
+                                sankalpa_hash: mudra.seal,
+                                ve_decay_rate: telemetry.v_e_decay,
+                                spiffe_id: effective_spiffe,
+                                tdx_quote: None,
+                                response_hash: None,
+                                error_message: Some(format!("Proxy Error: {:?}", e)),
+                            };
+                            let _ = state.evidence_repo.append_evidence(event).await;
+
+                            McpResponse {
+                                jsonrpc: "2.0".to_string(), result: None, provenance: None,
+                                error: Some(McpError { code: -32002, message: format!("Proxy Error: {:?}", e) }), id: req_id,
+                            }
                         }
                     }
                 }
             }
         },
-        Err((code, message)) => McpResponse {
-            jsonrpc: "2.0".to_string(), result: None, provenance: None,
-            error: Some(McpError { code, message }), id: req_id,
+        Err(e) => {
+            let event = SovereignEvent {
+                stage: LifecycleStage::SystemFailure,
+                sankalpa_hash: [0u8; 32],
+                ve_decay_rate: telemetry.v_e_decay,
+                spiffe_id: effective_spiffe,
+                tdx_quote: None,
+                response_hash: None,
+                error_message: Some(format!("Sakshi Attestation Failed: {:?}", e)),
+            };
+            let _ = state.evidence_repo.append_evidence(event).await;
+
+            McpResponse {
+                jsonrpc: "2.0".to_string(), result: None, provenance: None,
+                error: Some(McpError { code: -32000, message: format!("Sakshi Attestation Failed: {:?}", e) }), id: req_id,
+            }
         }
     }
 }
@@ -537,14 +638,13 @@ pub enum LifecycleMode { Ephemeral, Persistent }
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    dotenvy::dotenv().ok();
     let args = Args::parse();
     let app_config = AppConfig::load().unwrap_or(AppConfig { golden_mrtd: "".into(), resource_context: "".into(), identity_context: "".into() });
     let gateway_config = JsonFilePolicy::load_from_disk("policy.json").expect("Policy fail").config;
     let silicon = ProviderFactory::create_silicon_provider(&gateway_config);
     let connector = ProviderFactory::create_pramana_provider(&gateway_config, ProviderFactory::create_silicon_provider(&gateway_config));
     let token = tokio_util::sync::CancellationToken::new();
-
-    verify_sakshi_integrity(&*silicon, &*connector).await.expect("Integrity check fail");
 
     let evidence_repo: Arc<dyn PramanaRepository> = if let Ok(topic_id) = std::env::var("HEDERA_TOPIC_ID") {
         Arc::new(HederaHcsRepository::new(&topic_id).await.expect("Failed to init Hedera repo"))
@@ -569,6 +669,8 @@ async fn main() -> io::Result<()> {
         token: token.clone(), config: app_config, gateway_config, logic_mode: args.logic, 
         ve_threshold, verbose: args.verbose,
     });
+
+    perform_sovereign_bootstrap(&state).await.expect("Bootstrap fail — Technical Integrity Violation");
 
     // Resolve Lifecycle Dimension
     if args.lifecycle == LifecycleMode::Ephemeral {
