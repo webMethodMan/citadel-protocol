@@ -26,6 +26,7 @@ pub struct GatewayConfig {
     pub authorized_tools: HashMap<String, ToolPolicy>,
     pub a2a_url: Option<String>,
     pub spiffe_id: Option<String>,
+    pub ve_threshold: Option<f64>,
 }
 
 #[allow(dead_code)]

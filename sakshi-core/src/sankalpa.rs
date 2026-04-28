@@ -36,7 +36,9 @@ pub struct SovereignPayload<'a> {
     pub tool_id:  &'a str,
     pub spiffe_id: Option<String>,
     pub nonce: [u8; 32],
-    pub ve_decay_rate: [u8; 8], // Telemetry structurally bound to intent
+    pub ve_decay_rate: [u8; 8], 
+    pub authority_hash: [u8; 32], // Cryptographic binding to authority
+    pub integrity_hash: [u8; 32], // Cryptographic binding to workload integrity
 }
 
 impl<'a> Sankalpa for SovereignPayload<'a> {
@@ -55,6 +57,8 @@ impl<'a> Sankalpa for SovereignPayload<'a> {
         }
         data.push(&self.nonce[..]);
         data.push(&self.ve_decay_rate[..]);
+        data.push(&self.authority_hash[..]);
+        data.push(&self.integrity_hash[..]);
         
         Ok(hasher.hash(&data))
     }
@@ -69,14 +73,20 @@ pub enum InboundContext<'a> {
         resource: [u8; 32], 
         spiffe_id: Option<String>,
         nonce: [u8; 32],
-        ve_decay_rate: f64,
+        telemetry: TelemetryState,
     },
     A2A { 
         agent_id: &'a [u8; 32], 
         action: &'a str, 
         nonce: [u8; 32],
-        ve_decay_rate: f64,
+        telemetry: TelemetryState,
     },
+}
+
+pub struct TelemetryState {
+    pub ve_decay_rate: f64,
+    pub authority_hash: [u8; 32],
+    pub integrity_hash: [u8; 32],
 }
 
 pub trait IntentTranslator: Send + Sync {

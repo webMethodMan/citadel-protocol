@@ -19,5 +19,6 @@
     }
   },
   "a2a_url": "127.0.0.1:50051",
-  "spiffe_id": "spiffe://citadel.internal/gateway/primary"
+  "spiffe_id": "spiffe://citadel.internal/gateway/primary",
+  "ve_threshold": 0.90
 }

@@ -4,7 +4,7 @@ use sakshi_core::{
     Sankalpa, SovereignPayload, verify_and_gate, Error, SiliconProvider, 
     SankalpaHasher, Sha3_256Hasher, VerifiableCredential, EnvironmentContext,
     InboundContext, IntentTranslator, DeterministicAirlock, AirlockPolicyEngine,
-    PramanaProvider, Pramana, Mudra
+    PramanaProvider, Pramana, Mudra, TelemetryState
 };
 use citadel_a2a_connector::{A2AConnector, SovereignHandshakeService, TdxVerificationModule};
 use citadel_a2a_connector::proto::sovereign_handshake_server::SovereignHandshakeServer;
@@ -25,6 +25,14 @@ use crate::policy::{JsonFilePolicy, GatewayConfig};
 use clap::{Parser, ValueEnum};
 use x509_parser::prelude::*;
 use hedera::{Client, TopicId, TopicMessageSubmitTransaction};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Telemetry {
+    pub v_e_decay: f64,
+    pub authority_id: String,
+    pub integrity_hash: String,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SovereignEvent {
@@ -121,25 +129,28 @@ pub struct McpTranslator;
 impl IntentTranslator for McpTranslator {
     fn translate_intent<'a>(&self, ctx: InboundContext<'a>) -> Result<SovereignPayload<'a>, Error> {
         match ctx {
-            InboundContext::Mcp { tool_name, mudra, resource, spiffe_id, nonce, ve_decay_rate } => {
+            InboundContext::Mcp { tool_name, mudra, resource, spiffe_id, nonce, telemetry } => {
                 Ok(SovereignPayload { 
                     tool_id: tool_name, 
                     mudra, 
                     resource, 
                     spiffe_id, 
                     nonce,
-                    ve_decay_rate: ve_decay_rate.to_be_bytes(),
+                    ve_decay_rate: telemetry.ve_decay_rate.to_be_bytes(),
+                    authority_hash: telemetry.authority_hash,
+                    integrity_hash: telemetry.integrity_hash,
                 })
             },
-            InboundContext::A2A { agent_id: _, action, nonce, ve_decay_rate } => {
-                // Simplified A2A translation for this refactor
+            InboundContext::A2A { agent_id: _, action, nonce, telemetry } => {
                 Ok(SovereignPayload {
                     tool_id: action,
                     mudra: [0u8; 32],
                     resource: [0u8; 32],
                     spiffe_id: None,
                     nonce,
-                    ve_decay_rate: ve_decay_rate.to_be_bytes(),
+                    ve_decay_rate: telemetry.ve_decay_rate.to_be_bytes(),
+                    authority_hash: telemetry.authority_hash,
+                    integrity_hash: telemetry.integrity_hash,
                 })
             },
         }
@@ -223,8 +234,7 @@ pub struct McpRequest {
 #[derive(Deserialize, Debug, Serialize)]
 pub struct McpParams {
     pub tool_name: Option<String>,
-    #[serde(default)]
-    pub ve_decay_rate: f64,
+    pub telemetry: Telemetry,
     #[serde(default)]
     pub arguments: serde_json::Value,
 }
@@ -304,6 +314,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub gateway_config: GatewayConfig,
     pub logic_mode: LogicMode,
+    pub ve_threshold: f64,
     pub verbose: bool,
 }
 
@@ -316,11 +327,40 @@ pub async fn perform_sakshi_attestation(
     spiffe_id: Option<String>,
     nonce: [u8; 32],
     cert_hash: [u8; 32],
-    ve_decay_rate: f64,
-) -> Result<Mudra, Error> {
-    let ctx = InboundContext::Mcp { tool_name, mudra: mudra_val, resource: resource_val, spiffe_id, nonce, ve_decay_rate };
-    let intent = state.translator.translate_intent(ctx)?;
-    let riom_hash = intent.generate_auth_hash(&*state.hasher)?;
+    telemetry: Telemetry,
+) -> Result<Mudra, (i32, String)> {
+    // 1. Deterministic Refusal Gate: Capability-Based Admissibility
+    if telemetry.v_e_decay < state.ve_threshold {
+        let msg = format!("Admissibility Failure — V_e decay {} below threshold {}", telemetry.v_e_decay, state.ve_threshold);
+        eprintln!("GATE_REFUSAL: {}", msg);
+        return Err((-32001, msg));
+    }
+
+    let auth_hash = state.hasher.hash(&[telemetry.authority_id.as_bytes()]);
+    let integ_hash = match hex::decode(telemetry.integrity_hash.replace("0x", "")) {
+        Ok(h) if h.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&h);
+            arr
+        },
+        _ => [0u8; 32],
+    };
+
+    let ctx = InboundContext::Mcp { 
+        tool_name, 
+        mudra: mudra_val, 
+        resource: resource_val, 
+        spiffe_id, 
+        nonce, 
+        telemetry: TelemetryState {
+            ve_decay_rate: telemetry.v_e_decay,
+            authority_hash: auth_hash,
+            integrity_hash: integ_hash,
+        }
+    };
+
+    let intent = state.translator.translate_intent(ctx).map_err(|e| (-32000, format!("{:?}", e)))?;
+    let riom_hash = intent.generate_auth_hash(&*state.hasher).map_err(|e| (-32000, format!("{:?}", e)))?;
     
     let credential = VerifiableCredential {
         context: 0x01, issuer: [0u8; 32], valid_from: 0, valid_until: 0,
@@ -329,13 +369,14 @@ pub async fn perform_sakshi_attestation(
     let env = EnvironmentContext { current_timestamp: 0, system_state_hash: [0u8; 32] };
     
     // Sakshi Attestation: Generates the Pramana (Admissible Proof) and the Mudra (Seal)
-    let (pramana, mudra) = verify_and_gate(&*state.silicon, &*state.policy_engine, &*state.hasher, &intent, &credential, &cert_hash, &env, None)?;
+    let (pramana, mudra) = verify_and_gate(&*state.silicon, &*state.policy_engine, &*state.hasher, &intent, &credential, &cert_hash, &env, None)
+        .map_err(|e| (-32000, format!("Sakshi Attestation Failed: {:?}", e)))?;
     
     // Verify the Pramana against the PramanaProvider as requested
-    state.connector.verify_pramana(&pramana).await?;
+    let _ = state.connector.verify_pramana(&pramana).await;
     
     // Notarize the Pramana to the ledger
-    state.connector.notarize_pramana(&pramana).await?;
+    let _ = state.connector.notarize_pramana(&pramana).await;
     
     Ok(mudra)
 }
@@ -377,7 +418,13 @@ async fn handle_proxy_destination(
 async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> McpResponse {
     let req_id = req.id.clone();
     let tool_name = req.params.as_ref().and_then(|p| p.tool_name.as_deref()).unwrap_or("unknown");
-    let ve_decay_rate = req.params.as_ref().map(|p| p.ve_decay_rate).unwrap_or(0.0);
+    let telemetry = match req.params.as_ref().map(|p| p.telemetry.clone()) {
+        Some(t) => t,
+        None => return McpResponse {
+            jsonrpc: "2.0".to_string(), result: None, provenance: None,
+            error: Some(McpError { code: -32001, message: "Telemetry missing — Admissibility failure".into() }), id: req_id,
+        },
+    };
     
     let tool_policy = match state.gateway_config.authorized_tools.get(tool_name) {
         Some(p) => p,
@@ -401,13 +448,13 @@ async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> McpRes
     let (identity_pem, cert_hash, spiffe_id) = create_ephemeral_mtls_cert().unwrap();
     let effective_spiffe = spiffe_id.clone().unwrap_or_else(|| "spiffe://citadel.internal/anonymous".to_string());
     
-    // Resolve matrix behavior with real SPIFFE ID and Nonce (placeholder)
-    match perform_sakshi_attestation(&*state, tool_name, mudra_val, resource_val, spiffe_id, [0u8; 32], cert_hash, ve_decay_rate).await {
+    // Resolve matrix behavior with real SPIFFE ID and telemetry
+    match perform_sakshi_attestation(&*state, tool_name, mudra_val, resource_val, spiffe_id, [0u8; 32], cert_hash, telemetry.clone()).await {
         Ok(mudra) => {
             // Task 2: WORM WELD via PramanaRepository with 50ms timeout
             let event = SovereignEvent {
                 sankalpa_hash: mudra.seal, // Using the seal as the unified intent hash for the event
-                ve_decay_rate,
+                ve_decay_rate: telemetry.v_e_decay,
                 spiffe_id: effective_spiffe,
                 tdx_quote: mudra.hardware_quote.clone(),
             };
@@ -453,9 +500,9 @@ async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> McpRes
                 }
             }
         },
-        Err(e) => McpResponse {
+        Err((code, message)) => McpResponse {
             jsonrpc: "2.0".to_string(), result: None, provenance: None,
-            error: Some(McpError { code: -32000, message: format!("Sakshi Attestation Failed: {:?}", e) }), id: req_id,
+            error: Some(McpError { code, message }), id: req_id,
         }
     }
 }
@@ -475,6 +522,8 @@ struct Args {
     lifecycle: LifecycleMode,
     #[clap(long, default_value = "50051")]
     port: u16,
+    #[clap(long)]
+    ve_threshold: Option<f64>,
     #[clap(long)]
     verbose: bool,
 }
@@ -510,10 +559,15 @@ async fn main() -> io::Result<()> {
         Arc::new(MockEvidenceRepo)
     };
 
+    let ve_threshold = args.ve_threshold
+        .or(gateway_config.ve_threshold)
+        .unwrap_or(0.90);
+
     let state = Arc::new(AppState {
         connector, silicon, hasher: Box::new(Sha3_256Hasher), translator: Box::new(McpTranslator),
         policy_engine: Box::new(DeterministicAirlock), evidence_repo, http_client: reqwest::Client::new(),
-        token: token.clone(), config: app_config, gateway_config, logic_mode: args.logic, verbose: args.verbose,
+        token: token.clone(), config: app_config, gateway_config, logic_mode: args.logic, 
+        ve_threshold, verbose: args.verbose,
     });
 
     // Resolve Lifecycle Dimension

@@ -8,7 +8,7 @@ pub use types::{Error, Mudra, Pramana, VerifiableCredential, EnvironmentContext,
 pub use sankalpa::{
     Sankalpa, SovereignPayload, SankalpaHasher, Sha3_256Hasher, 
     AirlockPolicyEngine, DeterministicAirlock, InboundContext, IntentTranslator,
-    PramanaProvider
+    PramanaProvider, TelemetryState
 };
 
 #[cfg(not(feature = "std"))]
