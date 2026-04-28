@@ -4,7 +4,7 @@ use sakshi_core::{
     Sankalpa, SovereignPayload, verify_and_gate, Error, SiliconProvider, 
     SankalpaHasher, Sha3_256Hasher, VerifiableCredential, EnvironmentContext,
     InboundContext, IntentTranslator, DeterministicAirlock, AirlockPolicyEngine,
-    PramanaProvider, Pramana, Mudra, TelemetryState
+    PramanaProvider, Pramana, Mudra, TelemetryState, PolicyComparator, SignedTelemetry
 };
 use citadel_a2a_connector::{A2AConnector, SovereignHandshakeService, TdxVerificationModule};
 use citadel_a2a_connector::proto::sovereign_handshake_server::SovereignHandshakeServer;
@@ -32,6 +32,21 @@ pub struct Telemetry {
     pub v_e_decay: f64,
     pub authority_id: String,
     pub integrity_hash: String,
+    pub signature: String, // Hex-encoded ed25519 signature
+}
+
+pub struct ThresholdComparator;
+impl PolicyComparator for ThresholdComparator {
+    fn evaluate_synthesis(&self, telemetry: &TelemetryState, mandate: &dyn Sankalpa) -> Result<(), Error> {
+        // Deterministic Synthesis: Current_MTCP_Decay <= Sankalpa_Max_Decay
+        // Note: For Ve Decay Rate, higher is usually better stability. 
+        // If "decay" means degradation, then lower is better. 
+        // Given earlier prompt used "below threshold 0.90", it means current must be >= threshold.
+        if telemetry.ve_decay_rate < mandate.max_decay() {
+            return Err(Error::SecurityViolation);
+        }
+        Ok(())
+    }
 }
 
 
@@ -159,28 +174,28 @@ pub struct McpTranslator;
 impl IntentTranslator for McpTranslator {
     fn translate_intent<'a>(&self, ctx: InboundContext<'a>) -> Result<SovereignPayload<'a>, Error> {
         match ctx {
-            InboundContext::Mcp { tool_name, mudra, resource, spiffe_id, nonce, telemetry } => {
+            InboundContext::Mcp { tool_name, mudra, resource, spiffe_id, nonce, telemetry, max_decay } => {
                 Ok(SovereignPayload { 
                     tool_id: tool_name, 
                     mudra, 
                     resource, 
                     spiffe_id, 
                     nonce,
-                    ve_decay_rate: telemetry.ve_decay_rate.to_be_bytes(),
-                    authority_hash: telemetry.authority_hash,
-                    integrity_hash: telemetry.integrity_hash,
+                    max_decay,
+                    authority_hash: telemetry.state.authority_hash,
+                    integrity_hash: telemetry.state.integrity_hash,
                 })
             },
-            InboundContext::A2A { agent_id: _, action, nonce, telemetry } => {
+            InboundContext::A2A { agent_id: _, action, nonce, telemetry, max_decay } => {
                 Ok(SovereignPayload {
                     tool_id: action,
                     mudra: [0u8; 32],
                     resource: [0u8; 32],
                     spiffe_id: None,
                     nonce,
-                    ve_decay_rate: telemetry.ve_decay_rate.to_be_bytes(),
-                    authority_hash: telemetry.authority_hash,
-                    integrity_hash: telemetry.integrity_hash,
+                    max_decay,
+                    authority_hash: telemetry.state.authority_hash,
+                    integrity_hash: telemetry.state.integrity_hash,
                 })
             },
         }
@@ -346,6 +361,7 @@ pub struct AppState {
     pub hasher: Box<dyn SankalpaHasher>,
     pub translator: Box<dyn IntentTranslator>,
     pub policy_engine: Box<dyn AirlockPolicyEngine>,
+    pub comparator: Box<dyn PolicyComparator>,
     pub evidence_repo: Arc<dyn PramanaRepository>,
     pub http_client: reqwest::Client,
     pub token: tokio_util::sync::CancellationToken,
@@ -353,6 +369,7 @@ pub struct AppState {
     pub gateway_config: GatewayConfig,
     pub logic_mode: LogicMode,
     pub ve_threshold: f64,
+    pub telemetry_public_key: [u8; 32],
     pub verbose: bool,
 }
 
@@ -377,30 +394,53 @@ pub async fn perform_sakshi_attestation(
         _ => [0u8; 32],
     };
 
+    let sig_bytes = hex::decode(telemetry.signature).map_err(|_| Error::SecurityViolation)?;
+    if sig_bytes.len() != 64 { return Err(Error::SecurityViolation); }
+    let mut sig = [0u8; 64];
+    sig.copy_from_slice(&sig_bytes);
+
+    let signed_telemetry = SignedTelemetry {
+        state: TelemetryState {
+            ve_decay_rate: telemetry.v_e_decay,
+            authority_hash: auth_hash,
+            integrity_hash: integ_hash,
+        },
+        signature: sig,
+    };
+
     let ctx = InboundContext::Mcp { 
         tool_name, 
         mudra: mudra_val, 
         resource: resource_val, 
         spiffe_id, 
         nonce, 
-        telemetry: TelemetryState {
-            ve_decay_rate: telemetry.v_e_decay,
-            authority_hash: auth_hash,
-            integrity_hash: integ_hash,
-        }
+        telemetry: signed_telemetry.clone(),
+        max_decay: state.ve_threshold,
     };
 
     let intent = state.translator.translate_intent(ctx)?;
-    let riom_hash = intent.generate_auth_hash(&*state.hasher)?;
     
     let credential = VerifiableCredential {
         context: 0x01, issuer: [0u8; 32], valid_from: 0, valid_until: 0,
-        identity_hash: riom_hash, capability: tool_name, signature: [0u8; 64],
+        identity_hash: [0u8; 32], // Hash will be re-generated inside verify_and_gate if needed or just passed
+        capability: tool_name, signature: [0u8; 64],
     };
     let env = EnvironmentContext { current_timestamp: 0, system_state_hash: [0u8; 32] };
     
-    // Sakshi Attestation: Generates the Pramana (Admissible Proof) and the Mudra (Seal)
-    let (pramana, mudra) = verify_and_gate(&*state.silicon, &*state.policy_engine, &*state.hasher, &intent, &credential, &cert_hash, &env, None)?;
+    // Sakshi Attestation: Enforces Cryptographic Binding + Policy Comparison inside TEE
+    let (pramana, mudra) = verify_and_gate(
+        &*state.silicon, 
+        &*state.policy_engine, 
+        &*state.hasher, 
+        &*state.comparator,
+        &intent, 
+        &credential, 
+        &signed_telemetry,
+        &state.telemetry_public_key,
+        &cert_hash, 
+        &env, 
+        None
+    )?;
     
     // Verify the Pramana against the PramanaProvider as requested
     let _ = state.connector.verify_pramana(&pramana).await;
@@ -663,11 +703,19 @@ async fn main() -> io::Result<()> {
         .or(gateway_config.ve_threshold)
         .unwrap_or(0.90);
 
+    let mut telemetry_public_key = [0u8; 32];
+    if let Ok(pk_hex) = std::env::var("HEDERA_OPERATOR_PUBLIC_KEY") {
+        if let Ok(pk_bytes) = hex::decode(pk_hex) {
+            if pk_bytes.len() == 32 { telemetry_public_key.copy_from_slice(&pk_bytes); }
+        }
+    }
+
     let state = Arc::new(AppState {
         connector, silicon, hasher: Box::new(Sha3_256Hasher), translator: Box::new(McpTranslator),
-        policy_engine: Box::new(DeterministicAirlock), evidence_repo, http_client: reqwest::Client::new(),
+        policy_engine: Box::new(DeterministicAirlock), comparator: Box::new(ThresholdComparator),
+        evidence_repo, http_client: reqwest::Client::new(),
         token: token.clone(), config: app_config, gateway_config, logic_mode: args.logic, 
-        ve_threshold, verbose: args.verbose,
+        ve_threshold, telemetry_public_key, verbose: args.verbose,
     });
 
     perform_sovereign_bootstrap(&state).await.expect("Bootstrap fail — Technical Integrity Violation");

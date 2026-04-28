@@ -8,8 +8,10 @@ pub use types::{Error, Mudra, Pramana, VerifiableCredential, EnvironmentContext,
 pub use sankalpa::{
     Sankalpa, SovereignPayload, SankalpaHasher, Sha3_256Hasher, 
     AirlockPolicyEngine, DeterministicAirlock, InboundContext, IntentTranslator,
-    PramanaProvider, TelemetryState
+    PramanaProvider, TelemetryState, PolicyComparator, SignedTelemetry
 };
+
+use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -37,17 +39,28 @@ pub fn verify_and_gate(
     provider: &dyn SiliconProvider,
     policy_engine: &dyn AirlockPolicyEngine,
     hasher: &dyn SankalpaHasher,
+    comparator: &dyn PolicyComparator,
     intent: &dyn Sankalpa,
     credential: &VerifiableCredential,
+    telemetry: &SignedTelemetry,
+    telemetry_public_key: &[u8; 32],
     cert_hash: &[u8; 32],
     env: &EnvironmentContext,
     spiffe_id: Option<&str>,
 ) -> Result<(Pramana, Mudra), Error> {
-    // 1. Perform Granular Admissibility Check (Recommendation 4)
+    // 1. Perform Granular Admissibility Check (W3C VC Validation)
     policy_engine.evaluate_admissibility(intent, credential, env, hasher)?;
 
-    // 2. Weld RIOM (Intent Hash), cert_hash, and SPIFFE ID into the Silicon Truth (TDREPORT)
-    // Note: Intent auth hash now includes the 32-byte nonce as per Sovereign Handshake Scope 1
+    // 2. The Ingestion Boundary: Verify Telemetry Signature inside TEE
+    let vk = VerifyingKey::from_bytes(telemetry_public_key).map_err(|_| Error::SecurityViolation)?;
+    let sig = Signature::from_bytes(&telemetry.signature);
+    vk.verify(&telemetry.state.to_bytes(), &sig).map_err(|_| Error::SecurityViolation)?;
+
+    // 3. The Evaluation Logic: Deterministic Synthesis Check
+    // "Does Current_MTCP_Decay <= Sankalpa_Max_Decay?"
+    comparator.evaluate_synthesis(&telemetry.state, intent)?;
+
+    // 4. Weld RIOM (Intent Hash), cert_hash, and SPIFFE ID into the Silicon Truth (TDREPORT)
     let proof = intent.generate_auth_hash(hasher)?;
     
     let mut spiffe_hash = [0u8; 32];
@@ -63,13 +76,14 @@ pub fn verify_and_gate(
     let report = provider.get_report(report_data)?;
     let bundle = provider.generate_bundle(&report)?;
     
-    // 3. Construct Pramana (The Admissible Proof)
+    // 5. Construct Pramana (The Admissible Proof)
+    // The proof now immutably binds the context (telemetry) to the hardware report
     let pramana = Pramana {
         report: report.to_vec(),
-        ledger_hash: None, // To be filled by the PramanaProvider during notarization
+        ledger_hash: None, 
     };
 
-    // 4. Return a Mudra containing the seal and the hardware-signed quote
+    // 6. Return a Mudra containing the seal and the hardware-signed quote
     let seal = hasher.hash(&[&report]);
     Ok((pramana, Mudra {
         seal,

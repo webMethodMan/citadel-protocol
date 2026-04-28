@@ -4,6 +4,12 @@
   "method": "citadel/attest",
   "params": {
     "tool_name": "attest",
+    "telemetry": {
+      "v_e_decay": 0.95,
+      "authority_id": "mtcp-node-alpha",
+      "integrity_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "signature": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
     "arguments": {
       "agent": "test-notary",
       "action": "verify"

@@ -28,6 +28,7 @@ impl SankalpaHasher for Sha3_256Hasher {
 pub trait Sankalpa: Send + Sync {
     fn identifier(&self) -> &[u8];
     fn generate_auth_hash(&self, hasher: &dyn SankalpaHasher) -> Result<[u8; 32], Error>;
+    fn max_decay(&self) -> f64;
 }
 
 pub struct SovereignPayload<'a> {
@@ -36,9 +37,9 @@ pub struct SovereignPayload<'a> {
     pub tool_id:  &'a str,
     pub spiffe_id: Option<String>,
     pub nonce: [u8; 32],
-    pub ve_decay_rate: [u8; 8], 
-    pub authority_hash: [u8; 32], // Cryptographic binding to authority
-    pub integrity_hash: [u8; 32], // Cryptographic binding to workload integrity
+    pub max_decay: f64, // Mandated degradation limit from the mandate
+    pub authority_hash: [u8; 32],
+    pub integrity_hash: [u8; 32],
 }
 
 impl<'a> Sankalpa for SovereignPayload<'a> {
@@ -47,6 +48,7 @@ impl<'a> Sankalpa for SovereignPayload<'a> {
     }
 
     fn generate_auth_hash(&self, hasher: &dyn SankalpaHasher) -> Result<[u8; 32], Error> {
+        let max_decay_bytes = self.max_decay.to_be_bytes();
         let mut data = vec![
             &self.resource[..],
             &self.mudra[..],
@@ -56,11 +58,45 @@ impl<'a> Sankalpa for SovereignPayload<'a> {
             data.push(id.as_bytes());
         }
         data.push(&self.nonce[..]);
-        data.push(&self.ve_decay_rate[..]);
+        data.push(&max_decay_bytes[..]);
         data.push(&self.authority_hash[..]);
         data.push(&self.integrity_hash[..]);
         
         Ok(hasher.hash(&data))
+    }
+
+    fn max_decay(&self) -> f64 {
+        self.max_decay
+    }
+}
+
+pub trait PolicyComparator: Send + Sync {
+    /// Deterministically evaluates the empirical state against the mandate
+    fn evaluate_synthesis(&self, telemetry: &TelemetryState, mandate: &dyn Sankalpa) -> Result<(), Error>;
+}
+
+/// SignedTelemetry: The cryptographically notarized reading from the MTCP node
+#[derive(Clone)]
+pub struct SignedTelemetry {
+    pub state: TelemetryState,
+    pub signature: [u8; 64],
+}
+
+#[derive(Clone)]
+pub struct TelemetryState {
+    pub ve_decay_rate: f64,
+    pub authority_hash: [u8; 32],
+    pub integrity_hash: [u8; 32],
+}
+
+impl TelemetryState {
+    /// Extracts a byte representation for signature verification
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&self.ve_decay_rate.to_be_bytes());
+        b.extend_from_slice(&self.authority_hash);
+        b.extend_from_slice(&self.integrity_hash);
+        b
     }
 }
 
@@ -73,20 +109,16 @@ pub enum InboundContext<'a> {
         resource: [u8; 32], 
         spiffe_id: Option<String>,
         nonce: [u8; 32],
-        telemetry: TelemetryState,
+        telemetry: SignedTelemetry,
+        max_decay: f64,
     },
     A2A { 
         agent_id: &'a [u8; 32], 
         action: &'a str, 
         nonce: [u8; 32],
-        telemetry: TelemetryState,
+        telemetry: SignedTelemetry,
+        max_decay: f64,
     },
-}
-
-pub struct TelemetryState {
-    pub ve_decay_rate: f64,
-    pub authority_hash: [u8; 32],
-    pub integrity_hash: [u8; 32],
 }
 
 pub trait IntentTranslator: Send + Sync {

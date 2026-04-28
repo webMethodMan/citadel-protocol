@@ -18,7 +18,9 @@ To resolve the structural fragility of probabilistic governance, we employ a det
 
 Citadel enforces a **Capability — Based Admissibility Gate** to prevent the execution of unstable or unauthorized AI decisions. Every **Sankalpa** (intent bundle) must include structural telemetry:
 
-*   **Execution Velocity ($V_e$) Decay**: A telemetry metric measuring model stability. Decisions falling below the configured threshold (defined in `policy.json`) are rejected before hardware attestation.
+*   **Execution Velocity ($V_e$) Decay**: A telemetry metric measuring model stability. 
+*   **Source — Signed Telemetry (Airgap Integrity)**: Telemetry is signed at the source (MTCP Measurement Node). The host machine acts as a dumb pipe; the signature is verified **inside the TEE** to prevent Layer 2 spoofing.
+*   **Deterministic Synthesis**: The system enforces a strictly deterministic check: `Current_MTCP_Decay >= Sankalpa_Max_Decay`. This comparison is abstracted into the `PolicyComparator` trait and executed in the `no_std` core.
 *   **Cryptographic Binding**: The $V_e$ decay, authority identity, and workload integrity hash are structurally bound to the intent payload and hashed together inside the TEE.
 
 ## The WORM WELD (Evidence Notarization)
@@ -88,6 +90,7 @@ HEDERA_MIRROR_NODE_ADDRESS=127.0.0.1:5600
 # Hedera Operator (Secrets — Stored out-of-band)
 HEDERA_OPERATOR_ID=0.0.xxxxxx
 HEDERA_OPERATOR_KEY=302e0201...
+HEDERA_OPERATOR_PUBLIC_KEY=89abcdef...
 ```
 
 ### CLI Usage Examples
