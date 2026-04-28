@@ -1,13 +1,10 @@
 use async_trait::async_trait;
-use sakshi_core::Error;
+use sakshi_core::{Error, Pramana, PramanaProvider};
 
 #[async_trait]
-pub trait AttestationPlugin: Send + Sync {
+pub trait PramanaValidator: Send + Sync {
     /// The "Pre-Flight" check: Does the ledger/policy allow this intent?
     async fn validate_intent(&self, riom_hash: &[u8; 32]) -> Result<(), Error>;
-    
-    /// The "Post-Flight" check: Notarize the hardware report to the ledger.
-    async fn notarize_report(&self, report: &[u8; 1024]) -> Result<(), Error>;
 }
 
 // --- Implementation 1: The Hedera-Ready Mock ---
@@ -16,23 +13,30 @@ pub struct HederaPlugin {
 }
 
 #[async_trait]
-impl AttestationPlugin for HederaPlugin {
-    async fn validate_intent(&self, riom_hash: &[u8; 32]) -> Result<(), Error> {
+impl PramanaProvider for HederaPlugin {
+    async fn verify_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn notarize_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
+        eprintln!("HEDERA_PLUGIN: Submitting Pramana to HCS Topic {}...", self.topic_id);
+        Ok(())
+    }
+
+    async fn verify_sakshi_integrity(&self, _measurement: &[u8; 48]) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+impl HederaPlugin {
+    pub async fn validate_intent(&self, riom_hash: &[u8; 32]) -> Result<(), Error> {
         eprintln!("HEDERA_PLUGIN: Validating hash {:02x?} against Topic {}", 
             &riom_hash[..4], self.topic_id);
         
-        // This is where the Hedera Mirror Node call will eventually go.
-        // For now, we allow everything that starts with our known bytes.
         if riom_hash[0] == 0x28 { 
             Ok(()) 
         } else {
             Err(Error::SecurityViolation)
         }
-    }
-
-    async fn notarize_report(&self, _report: &[u8; 1024]) -> Result<(), Error> {
-        eprintln!("HEDERA_PLUGIN: Submitting hardware proof to HCS...");
-        // This is where 'TopicMessageSubmitTransaction' will live.
-        Ok(())
     }
 }

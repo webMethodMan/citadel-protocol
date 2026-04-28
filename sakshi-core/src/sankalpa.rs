@@ -1,10 +1,10 @@
-use crate::types::{Error, VerifiableCredential, EnvironmentContext};
+use crate::types::{Error, VerifiableCredential, EnvironmentContext, Pramana};
 use sha3::{Digest, Sha3_256};
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
+use alloc::{boxed::Box, string::String, vec, vec::Vec};
 
 pub trait SankalpaHasher: Send + Sync {
     fn hash(&self, data: &[&[u8]]) -> [u8; 32];
@@ -30,15 +30,16 @@ pub trait Sankalpa: Send + Sync {
     fn generate_auth_hash(&self, hasher: &dyn SankalpaHasher) -> Result<[u8; 32], Error>;
 }
 
-pub struct SankalpaPayload<'a> {
+pub struct SovereignPayload<'a> {
     pub resource: [u8; 32],
-    pub mudra: [u8; 32], // This is now the static seal/binding, not the full Mudra struct
+    pub mudra: [u8; 32], 
     pub tool_id:  &'a str,
     pub spiffe_id: Option<String>,
     pub nonce: [u8; 32],
+    pub ve_decay_rate: [u8; 8], // Telemetry structurally bound to intent
 }
 
-impl<'a> Sankalpa for SankalpaPayload<'a> {
+impl<'a> Sankalpa for SovereignPayload<'a> {
     fn identifier(&self) -> &[u8] {
         self.tool_id.as_bytes()
     }
@@ -52,8 +53,8 @@ impl<'a> Sankalpa for SankalpaPayload<'a> {
         if let Some(ref id) = self.spiffe_id {
             data.push(id.as_bytes());
         }
-        // Strictly concatenate the nonce as per Sovereign Handshake Scope 1
         data.push(&self.nonce[..]);
+        data.push(&self.ve_decay_rate[..]);
         
         Ok(hasher.hash(&data))
     }
@@ -68,20 +69,27 @@ pub enum InboundContext<'a> {
         resource: [u8; 32], 
         spiffe_id: Option<String>,
         nonce: [u8; 32],
+        ve_decay_rate: f64,
     },
-    A2A { agent_id: &'a [u8; 32], action: &'a str, nonce: [u8; 32] },
+    A2A { 
+        agent_id: &'a [u8; 32], 
+        action: &'a str, 
+        nonce: [u8; 32],
+        ve_decay_rate: f64,
+    },
 }
 
 pub trait IntentTranslator: Send + Sync {
-    fn translate_intent<'a>(&self, ctx: InboundContext<'a>) -> Result<SankalpaPayload<'a>, Error>;
+    fn translate_intent<'a>(&self, ctx: InboundContext<'a>) -> Result<SovereignPayload<'a>, Error>;
 }
 
-/// Recommendation 2/3: Attestation Connector (Outbound to Attestor/Hashgraph)
+/// PramanaProvider: The deterministic interface for verifying and notarizing Pramanas
+/// against a hardware root of trust and a shared ledger.
 #[async_trait::async_trait]
-pub trait AttestationConnector: Send + Sync {
-    async fn validate_notarization(&self, riom_hash: &[u8; 32]) -> Result<(), Error>;
-    async fn submit_hardware_proof(&self, report: &[u8; 1024]) -> Result<(), Error>;
-    async fn verify_self_integrity(&self, measurement: &[u8; 48]) -> Result<(), Error>;
+pub trait PramanaProvider: Send + Sync {
+    async fn verify_pramana(&self, pramana: &Pramana) -> Result<(), Error>;
+    async fn notarize_pramana(&self, pramana: &Pramana) -> Result<(), Error>;
+    async fn verify_sakshi_integrity(&self, measurement: &[u8; 48]) -> Result<(), Error>;
 }
 
 /// Recommendation 4: The Granular Airlock

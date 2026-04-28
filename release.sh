@@ -10,7 +10,7 @@ cargo build --release -p citadel-mcp-server --features tdx
 
 # 4. Build Sakshi Core (WASM)
 echo "Building Sakshi Core WASM..."
-cargo build --target wasm32-unknown-unknown --release -p sakshi-core --no-default-features
+cargo build --target wasm32-unknown-unknown --release -p sakshi-core --no-default-features --features alloc
 
 # 5. Package
 NATIVE_BIN="./target/release/citadel-mcp-server"

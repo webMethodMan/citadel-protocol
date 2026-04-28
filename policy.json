@@ -12,6 +12,10 @@
     "shutdown": {
       "hash": "9052e635dbade8d4a050f7d5c7ea8f481434659122beb072195daf498ebe913b",
       "mode": "notary"
+    },
+    "attest": {
+      "hash": "bcc7930764b9b7a8b9bbd0161b568e869466d0c4efaee8006a56f3e8e6d82b69",
+      "mode": "notary"
     }
   },
   "a2a_url": "127.0.0.1:50051",

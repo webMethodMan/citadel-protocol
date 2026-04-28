@@ -1,4 +1,4 @@
-use sakshi_core::{Mudra, Error, SiliconProvider, AttestationConnector};
+use sakshi_core::{Mudra, Pramana, Error, SiliconProvider, PramanaProvider};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -129,17 +129,17 @@ pub struct A2AConnector {
 }
 
 #[async_trait]
-impl AttestationConnector for A2AConnector {
-    async fn validate_notarization(&self, _riom_hash: &[u8; 32]) -> Result<(), Error> {
+impl PramanaProvider for A2AConnector {
+    async fn verify_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
         // In A2A mode, notarization is checked by the remote peer during the handshake.
         Ok(())
     }
 
-    async fn submit_hardware_proof(&self, _report: &[u8; 1024]) -> Result<(), Error> {
+    async fn notarize_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
         Ok(())
     }
 
-    async fn verify_self_integrity(&self, _measurement: &[u8; 48]) -> Result<(), Error> {
+    async fn verify_sakshi_integrity(&self, _measurement: &[u8; 48]) -> Result<(), Error> {
         Ok(())
     }
 }

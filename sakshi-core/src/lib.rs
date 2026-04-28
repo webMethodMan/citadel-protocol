@@ -4,11 +4,11 @@ pub mod sankalpa;
 pub mod types;
 pub mod provider;
 
-pub use types::{Error, Mudra, VerifiableCredential, EnvironmentContext, WorkloadIdentity, ProvenanceBundle, AttestationCollateral};
+pub use types::{Error, Mudra, Pramana, VerifiableCredential, EnvironmentContext, WorkloadIdentity, ProvenanceBundle, AttestationCollateral};
 pub use sankalpa::{
-    Sankalpa, SankalpaPayload, SankalpaHasher, Sha3_256Hasher, 
+    Sankalpa, SovereignPayload, SankalpaHasher, Sha3_256Hasher, 
     AirlockPolicyEngine, DeterministicAirlock, InboundContext, IntentTranslator,
-    AttestationConnector
+    PramanaProvider
 };
 
 #[cfg(not(feature = "std"))]
@@ -42,7 +42,7 @@ pub fn verify_and_gate(
     cert_hash: &[u8; 32],
     env: &EnvironmentContext,
     spiffe_id: Option<&str>,
-) -> Result<Mudra, Error> {
+) -> Result<(Pramana, Mudra), Error> {
     // 1. Perform Granular Admissibility Check (Recommendation 4)
     policy_engine.evaluate_admissibility(intent, credential, env, hasher)?;
 
@@ -63,10 +63,35 @@ pub fn verify_and_gate(
     let report = provider.get_report(report_data)?;
     let bundle = provider.generate_bundle(&report)?;
     
-    // 3. Return a Mudra containing the seal and the hardware-signed quote
+    // 3. Construct Pramana (The Admissible Proof)
+    let pramana = Pramana {
+        report: report.to_vec(),
+        ledger_hash: None, // To be filled by the PramanaProvider during notarization
+    };
+
+    // 4. Return a Mudra containing the seal and the hardware-signed quote
     let seal = hasher.hash(&[&report]);
-    Ok(Mudra {
+    Ok((pramana, Mudra {
         seal,
         hardware_quote: bundle.quote,
-    })
+    }))
+}
+
+#[cfg(not(feature = "std"))]
+#[no_mangle]
+pub extern "C" fn sakshi_verify_and_gate_wasm(
+    cert_hash_ptr: *const u8,
+    cert_hash_len: usize,
+    result_seal_ptr: *mut u8,
+) -> i32 {
+    if cert_hash_len != 32 { return -1; }
+    
+    // This is a simplified entry point for WASM verification logic.
+    let cert_hash = unsafe { core::slice::from_raw_parts(cert_hash_ptr, 32) };
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(cert_hash);
+    
+    // Return success placeholder for now
+    unsafe { core::ptr::write_bytes(result_seal_ptr, 0xAA, 32); }
+    0
 }

@@ -1,5 +1,8 @@
 use crate::{SiliconProvider, Error, WorkloadIdentity};
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
 pub struct MockProvider {
     pub expected_mrtd: [u8; 48],
 }

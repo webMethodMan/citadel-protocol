@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "citadel/attest",
+  "params": {
+    "tool_name": "attest",
+    "arguments": {
+      "agent": "test-notary",
+      "action": "verify"
+    }
+  }
+}

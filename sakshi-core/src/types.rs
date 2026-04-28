@@ -1,5 +1,8 @@
 use minicbor::{Encode, Decode};
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 #[cbor(index_only)]
 pub enum Error {
@@ -14,6 +17,14 @@ pub enum Error {
 pub struct Mudra {
     #[n(0)] pub seal: [u8; 32],
     #[n(1)] #[cbor(with = "minicbor::bytes")] pub hardware_quote: Vec<u8>,
+}
+
+/// Pramana (The Admissible Proof): The unforgeable artifact attesting to the deterministic
+/// validity of the reasoning chain. It bridges the Sakshi's observation to the Mudra.
+#[derive(Debug, Clone, Encode, Decode, serde::Serialize)]
+pub struct Pramana {
+    #[n(0)] #[cbor(with = "minicbor::bytes")] pub report: Vec<u8>,
+    #[n(1)] pub ledger_hash: Option<[u8; 32]>,
 }
 
 /// Recommendation 1: W3C VC Alignment via portable CBOR

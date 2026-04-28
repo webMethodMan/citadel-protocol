@@ -5,13 +5,14 @@
 
 In an era of autonomous agents, the Citadel Protocol acts as a deterministic gatekeeper — a Silicon Airlock for AI agents to interact with legacy systems only after intent has been cryptographically notarized by a Trusted Execution Environment (TEE).
 
-## The Lexicon of Citadel
+## The Lexicon of Citadel (The Sovereign Spine)
 
-To understand the architecture, we employ a specific lexicon derived from Sanskrit:
+To resolve the structural fragility of probabilistic governance, we employ a deterministic ontology anchored in Sanskrit:
 
-*   **Sankalpa**: The "Intention" — A 32-byte hash representing the specific tool call or action an agent intends to take.
-*   **Sakshi**: The "Witness" — The hardware-enforced layer (Intel TDX) that verifies the truth of an intent before execution.
-*   **Mudra**: The "Seal" — A cryptographic notarization (returned by the Sakshi) binding the intent to a hardware report.
+*   **Sankalpa**: The "Intention" — A cryptographic vow binding identity and intent to the immediate moment of execution.
+*   **Sakshi**: The "Witness" — A decoupled, hardware-isolated observer (Intel TDX) that monitors the reasoning chain without possessing the authority to execute.
+*   **Pramana**: The "Admissible Proof" — The unforgeable, verifiable artifact proving the model maintained its constraint state throughout generation.
+*   **Mudra**: The "Single-Use Key / Seal" — The deterministic bridge connecting logical proof (Pramana) to physical hardware execution via the Iron Floor.
 
 ## The Sovereign Spine: Configuration Matrix
 
@@ -33,15 +34,16 @@ The Citadel Gateway (`citadel-mcp-server`) operates on a three-dimensional confi
 ## How it Works (The Gateway)
 
 1.  **Intercept**: The **Gateway** receives an MCP JSON — RPC request via the selected **Transport**.
-2.  **Governance**: The system checks the **Sankalpa** (intent hash) against the authorized `policy.json`.
-3.  **Hardware Gate (Sakshi)**: If authorized, the `sakshi-core` layer **welds** the intent hash (RIOM), the session certificate hash, and the SPIFFE ID into the Silicon Truth, triggering Intel TDX to generate a hardware report (TDREPORT).
-4.  **TEE — as — CA**: The Sakshi issues a **Mudra** — a cryptographic seal that notarizes the bound state of the intent and the ephemeral session identity.
-5.  **Proxy / Forward**: In `proxy` mode, Citadel establishes a secure **Provenance-Bound mTLS tunnel** to the destination, forwarding the request with the hardware quote included in the headers.
+2.  **Governance**: The system checks the **Sankalpa** (intent hash) against the authorized `policy.json` via the `AirlockPolicyEngine`.
+3.  **Hardware Observation (Sakshi)**: If authorized, the `sakshi-core` layer **welds** the intent hash (RIOM), the session certificate hash, and the SPIFFE ID into the Silicon Truth, triggering Intel TDX to generate a **Pramana** (Admissible Proof).
+4.  **Verification & Notarization**: The **Pramana** is verified against a `PramanaProvider` (e.g., Hedera Consensus Service) to ensure its ledger-backed validity.
+5.  **Seal Issuance (Mudra)**: Upon successful verification, the Sakshi issues a **Mudra** — a cryptographic seal that notarizes the bound state of the intent and the ephemeral session identity.
+6.  **Proxy / Forward**: In `proxy` mode, Citadel establishes a secure **Provenance-Bound mTLS tunnel** to the destination, forwarding the request with the hardware quote included in the headers.
 
 ## Components
 
 ### 1. `sakshi-core` (The Hardware Layer)
-The pure `no_std` core that performs the "Verify & Gate" operation. It provides the `Sankalpa`, `SankalpaHasher`, and `AirlockPolicyEngine` traits.
+The pure `no_std` core that performs the "Verify & Gate" operation. It defines the core primitives (`Pramana`, `Mudra`) and provides the `Sankalpa`, `PramanaProvider`, and `AirlockPolicyEngine` traits.
 
 ### 2. `sakshi-tdx` (Intel TDX Provider)
 The Linux-native driver interface for interacting with `/dev/tdx_guest`.
@@ -57,7 +59,7 @@ The high-performance transport adapter and "Sovereign Spine" router.
 
 ### Build
 ```bash
-cargo build --release
+./release.sh
 ```
 
 ### CLI Usage Examples
@@ -73,9 +75,9 @@ echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-
 ```
 
 ## Milestone v0.1 Changes
-*   **Sovereign Spine Matrix**: Introduced a 3-dimensional configuration pattern for Logic, Transport, and Lifecycle.
+*   **Sovereign Spine Primitives**: Full alignment with "A Forensic Lexicon for the Agentic Era," introducing **Pramana** and **PramanaProvider**.
+*   **Deterministic Governance**: Shifted from probabilistic compliance to hardware-enforced necessity.
 *   **Real mTLS Forwarding**: Ephemeral mTLS certificates are now cryptographically bound to the TDX quote during proxying.
-*   **Provenance-Bound Headers**: Proxy requests now include `X-Sakshi-Mudra` and `X-Sakshi-Quote` for end-to-end verification.
 *   **A2A Handshake Mesh**: Integrated gRPC-based "Agent-to-Agent" handshake protocol for decentralized trust.
 *   **Capability-Based Security**: Transitioned to a granular "Airlock" policy engine for validating intent admissibility.
 

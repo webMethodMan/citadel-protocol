@@ -7,9 +7,9 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["std"]
-std = ["alloc"]
-alloc = []
+default = ["std", "alloc"]
+std = ["serde/std"]
+alloc = ["serde/alloc"]
 
 [dependencies]
 sha3 = { version = "0.10", default-features = false }
