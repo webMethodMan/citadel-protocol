@@ -16,6 +16,7 @@ reqwest = { workspace = true }
 tokio = { workspace = true }
 dotenvy = "0.15"
 tracing-subscriber = { workspace = true }
+clap = { workspace = true }
 
 [dev-dependencies]
 mockito = "1.5.0"
