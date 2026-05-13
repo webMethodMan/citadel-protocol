@@ -1,0 +1,23 @@
+[package]
+name = "citadel-secrets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sakshi-core = { workspace = true }
+keyring = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["full"] }
+
+[[bin]]
+name = "citadel-secrets-mgr"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = ["clap", "tracing-subscriber"]

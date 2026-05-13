@@ -1,5 +1,5 @@
 [workspace]
-members = ["citadel-a2a-connector", "sakshi-core", "sakshi-tdx", "citadel-mcp-server", "citadel-adapters/citadel-adapter-hiero", "citadel-verifier", "citadel-axum-adapter"]
+members = ["citadel-a2a-connector", "sakshi-core", "sakshi-tdx", "citadel-mcp-server", "citadel-adapters/citadel-adapter-hiero", "citadel-verifier", "citadel-axum-adapter", "citadel-secrets"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -30,6 +30,7 @@ x509-parser = "0.18.1"
 base64 = "0.22.1"
 rcgen = "0.13.2"
 thiserror = "2.0.18"
+keyring = "3.6.2"
 serde_bytes = "0.11.15"
 clap = { version = "4.6.1", features = ["derive"] }
 anyhow = "1.0.102"

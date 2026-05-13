@@ -13,6 +13,13 @@ pub use sankalpa::{
 };
 pub use repository::{PramanaRepository, EvidenceVerifier, SovereignEvent, LifecycleStage, EvidenceError};
 
+#[async_trait::async_trait]
+pub trait SecretStore: Send + Sync {
+    async fn get_secret(&self, key: &str) -> Result<String, Error>;
+    async fn set_secret(&self, key: &str, value: &str) -> Result<(), Error>;
+    async fn delete_secret(&self, key: &str) -> Result<(), Error>;
+}
+
 use ed25519_dalek::{VerifyingKey, Signature, Verifier};
 
 #[cfg(not(feature = "std"))]
