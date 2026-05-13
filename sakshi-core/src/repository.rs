@@ -13,6 +13,7 @@ pub enum LifecycleStage {
     #[n(2)] ExecutionCompletion,
     #[n(3)] SystemFailure,
     #[n(4)] SovereignAnchor,
+    #[n(5)] PolicyUpdate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
