@@ -14,7 +14,7 @@ def generate_test_payload():
     vk = sk.get_verifying_key()
     
     print(f"DEBUG: Using Test Public Key: {binascii.hexlify(vk.to_bytes()).decode()}")
-    print(f"DEBUG: Set HEDERA_OPERATOR_PUBLIC_KEY={binascii.hexlify(vk.to_bytes()).decode()}")
+    print(f"DEBUG: Set HIERO_OPERATOR_PUBLIC_KEY={binascii.hexlify(vk.to_bytes()).decode()}")
 
     # 2. Hashing (Matching sakshi-core Sha3_256Hasher)
     auth_hash = hashlib.sha3_256(authority_id.encode()).digest()

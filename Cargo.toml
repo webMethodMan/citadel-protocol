@@ -1,6 +1,38 @@
 [workspace]
-members = ["citadel-a2a-connector", "sakshi-core", "sakshi-tdx", "citadel-mcp-server", "citadel-a2a-connector"]
+members = ["citadel-a2a-connector", "sakshi-core", "sakshi-tdx", "citadel-mcp-server", "citadel-adapters/citadel-adapter-hiero", "citadel-verifier", "citadel-axum-adapter"]
 resolver = "2"
+
+[workspace.dependencies]
+# Core Protocol & Logic
+sakshi-core = { version = "0.1.0", path = "sakshi-core" }
+sakshi-tdx = { version = "0.1.0", path = "sakshi-tdx" }
+citadel-verifier = { version = "0.1.0", path = "citadel-verifier" }
+citadel-a2a-connector = { version = "0.1.0", path = "citadel-a2a-connector" }
+citadel-adapter-hiero = { version = "0.1.0", path = "citadel-adapters/citadel-adapter-hiero" }
+
+# Common Libraries
+async-trait = "0.1.89"
+serde = { version = "1.0.228", default-features = false }
+serde_json = "1.0.149"
+hex = "0.4.3"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+tokio = { version = "1.52.1", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["codec"] }
+tokio-stream = "0.1.18"
+futures = "0.3.32"
+axum = "0.8.9"
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json"] }
+tonic = "0.12.3"
+prost = "0.13.5"
+ring = "0.17.14"
+x509-parser = "0.18.1"
+base64 = "0.22.1"
+rcgen = "0.13.2"
+thiserror = "2.0.18"
+serde_bytes = "0.11.15"
+clap = { version = "4.6.1", features = ["derive"] }
+anyhow = "1.0.102"
 
 [profile.release]
 panic = "abort"

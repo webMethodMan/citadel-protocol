@@ -1,0 +1,19 @@
+[package]
+name = "citadel-verifier"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+mock-hardware = ["sakshi-core/mock-hardware"]
+
+[dependencies]
+async-trait = { workspace = true }
+hex = { workspace = true }
+ring = { workspace = true }
+sakshi-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+x509-parser = { workspace = true }
+thiserror = { workspace = true }

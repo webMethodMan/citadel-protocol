@@ -1,7 +1,7 @@
 {
   "environment": "development",
   "allowed_mrtds": [
-    "0d0000000000000000000000000000000000000000000000"
+    "0d0108000000000000000000000000000000000000000000"
   ],
   "authorized_tools": {
     "webMethods_Flow_Alpha": {
@@ -16,6 +16,11 @@
     "attest": {
       "hash": "bcc7930764b9b7a8b9bbd0161b568e869466d0c4efaee8006a56f3e8e6d82b69",
       "mode": "notary"
+    },
+    "Broken_Target_Tool": {
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mode": "proxy",
+      "target_url": "http://127.0.0.1:9999/broken"
     }
   },
   "a2a_url": "127.0.0.1:50051",

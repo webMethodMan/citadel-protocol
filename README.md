@@ -33,29 +33,81 @@ Citadel enforces a **Fail — Closed** security posture via the `PramanaReposito
     *   **`SankalpaIntent`**: Recorded upon successful hardware attestation, binding the quote to the intent.
     *   **`ExecutionCompletion`**: Recorded after proxy execution, binding the response hash to the original intent.
     *   **`SystemFailure`**: Recorded if an unexpected error occurs during attestation or proxying.
-*   **Hedera Consensus Service (HCS)**: The default production repository. It submits `SovereignEvents` to a public HCS Topic.
+*   **Hiero Consensus Service (HCS)**: The default production repository. It submits `SovereignEvents` to a public HCS Topic.
 *   **Terminal Refusal**: The gateway applies a strict **50ms timeout** on evidence submission during the Intent stage. Failure to notarize triggers a Terminal Refusal.
+
+## Core Architecture & Modularization
+
+The Citadel Protocol is structured into specialized crates and modules to ensure a clear separation between hardware-rooted trust and application-level gateway logic:
+
+*   **`sakshi-core`**: The "no_std" core defining the foundational traits (**Sankalpa**, **Mudra**, **SiliconProvider**) and the primary `verify_and_gate` orchestration logic.
+*   **`citadel-verifier`**: A new specialized crate for TEE-signed Pramana verification and identity extraction.
+*   **`citadel-mcp-server`**: The Gateway implementation, now refactored for high maintainability:
+    *   `src/main.rs`: High-level orchestration, now using consolidated configuration.
+    *   `src/policy.rs`: Unified **CitadelConfig** schema for both environment and tool policies.
+    *   `src/mcp.rs`: Decoupled JSON-RPC protocol structures and MCP handling logic.
+*   **`citadel-a2a-connector`**: The Peer-to-Peer (Agent-to-Agent) gRPC bridge for decentralized attestation.
+
+## Core Architectural Improvements (v0.2)
+
+To ensure the technical integrity and maintainability of the Sovereign Spine, the following structural improvements have been implemented:
+
+*   **Centralized Dependency Management**: All common dependencies (Tokio, Serde, Tracing, etc.) are managed at the workspace root via `[workspace.dependencies]`, ensuring version consistency across all crates.
+*   **Strict Type Validation**: Introduced a specialized `Mrtd` type with built-in hex validation and length enforcement to prevent malformed measurements from reaching the attestation layer.
+*   **Unified Configuration Layer**: Merged the fragmented `citadel.toml` and `policy.json` into a single, cohesive `CitadelConfig` schema. The system now supports both TOML and JSON formats for environment and policy definitions.
+*   **Feature-Gated Mock Logic**: All non-production mock hardware logic is strictly gated behind the `mock-hardware` feature flag, ensuring that hardcoded test measurements are definitively stripped from production builds.
+*   **Native Rust Testing**: Complemented the Python integration harness with native Rust unit tests in `sakshi-core` to verify the core `verify_and_gate` logic.
+
+## Observability & Technical Integrity
+
+To support the auditing requirements of a "Silicon Airlock," Citadel employs a structured observability stack:
+
+*   **Structured Logging**: Powered by the `tracing` crate. All security-critical events (Attestation results, Policy refusals, WORM welds) are emitted as structured logs.
+*   **Log Level Control**: Fine-grained visibility across the gateway and A2A connector using standard log levels (`info`, `warn`, `error`).
+*   **Deterministic Failure Analysis**: Detailed error context for attestation failures, including intent hashes and hardware quote verification errors.
 
 ## The Sovereign Spine: Configuration Matrix
 
-The Citadel Gateway (`citadel-mcp-server`) operates on a three-dimensional configuration matrix to support diverse deployment environments.
+### Policy Configuration (`policy.json`)
+The `policy.json` file serves as the primary source of truth for the gateway's governance behavior.
 
-### 1. Logic Mode (`--logic`)
-*   **`notary`**: Returns a **Mudra** (hardware seal) to the caller.
-*   **`proxy`**: Intercepts, notarizes, and forwards via a **Provenance-Bound mTLS tunnel**.
+```json
+{
+  "environment": "development",
+  "ve_threshold": 0.90,
+  "hiero_topic_id": "0.0.123456",
+  "authorized_tools": {
+    "webMethods_Flow_Alpha": {
+      "hash": "a8dd1f8b061dc276403a9b2a6c354f672958071d72d6d088ca6397b59e665f27",
+      "mode": "proxy",
+      "target_url": "http://127.0.0.1:8080/invoke/alpha"
+    }
+  }
+}
+```
 
-### 2. Transport Mode (`--transport`)
-*   **`mcp-stdio`**: JSON-RPC over standard input/output.
-*   **`mcp-sse`**: JSON-RPC over Server-Sent Events.
-*   **`grpc`**: High-performance binary mesh.
+*   **`ve_threshold`**: The default $V_e$ stability threshold for the admissibility gate.
+*   **`hiero_topic_id`**: The public HCS topic for evidence notarization.
+*   **`authorized_tools`**: Mapping of tool names to their cryptographic hashes and routing modes.
 
-### 3. Lifecycle Mode (`--lifecycle`)
-*   **`ephemeral`**: One transaction and exit.
-*   **`persistent`**: Long-running gateway listening for subsequent requests.
+### Dimensions of Operation
+
+The Citadel Gateway operates on a three-dimensional matrix to support diverse deployment environments:
+
+1. **Logic Mode (`--logic`)**:
+    *   **`notary`**: Returns a **Mudra** (hardware seal) to the caller.
+    *   **`proxy`**: Intercepts, notarizes, and forwards via a **Provenance-Bound mTLS tunnel**.
+2. **Transport Mode (`--transport`)**:
+    *   **`mcp-stdio`**: JSON-RPC over standard input/output.
+    *   **`mcp-sse`**: JSON-RPC over Server-Sent Events.
+    *   **`grpc`**: High-performance binary mesh.
+3. **Lifecycle Mode (`--lifecycle`)**:
+    *   **`ephemeral`**: One transaction and exit.
+    *   **`persistent`**: Long-running gateway listening for subsequent requests.
 
 ## How it Works (The Gateway)
 
-1.  **Bootstrap**: On startup, Citadel performs a **Hardware-Rooted Self-Attestation**. It extracts its silicon measurement (MRTD) and verifies it against the **Sovereign Anchor** on the Hedera ledger. If the measurements differ or the ledger is unreachable, the system enters **Terminal Refusal** and exits.
+1.  **Bootstrap**: On startup, Citadel performs a **Hardware-Rooted Self-Attestation**. It extracts its silicon measurement (MRTD) and verifies it against the **Sovereign Anchor** on the Hiero ledger. If the measurements differ or the ledger is unreachable, the system enters **Terminal Refusal** and exits.
 2.  **Intercept**: The **Gateway** receives an MCP request.
 3.  **Admissibility Check**: The system validates the telemetry block. If $V_e$ decay < `--ve-threshold` (or the policy value), it returns an **Admissibility Failure** (-32001).
 3.  **Governance**: The system checks the **Sankalpa** against the authorized `policy.json`.
@@ -75,22 +127,22 @@ The Citadel Gateway (`citadel-mcp-server`) operates on a three-dimensional confi
 ```
 
 ### Environment Configuration (.env)
-Credential management is decoupled from policy. Create a `.env` file to configure the Hedera repository:
+Credential management is decoupled from policy. Create a `.env` file to configure the Hiero repository:
 
 ```bash
-# Hedera Network (testnet, mainnet, or local)
-HEDERA_NETWORK=testnet
-HEDERA_TOPIC_ID=0.0.xxxxxx
+# Hiero Network (testnet, mainnet, or local)
+HIERO_NETWORK=testnet
+HIERO_TOPIC_ID=0.0.xxxxxx
 
-# Local Node Configuration (Required if HEDERA_NETWORK=local)
-HEDERA_NODE_ADDRESS=127.0.0.1:50211
-HEDERA_NODE_ACCOUNT_ID=0.0.3
-HEDERA_MIRROR_NODE_ADDRESS=127.0.0.1:5600
+# Local Node Configuration (Required if HIERO_NETWORK=local)
+HIERO_NODE_ADDRESS=127.0.0.1:50211
+HIERO_NODE_ACCOUNT_ID=0.0.3
+HIERO_MIRROR_NODE_ADDRESS=127.0.0.1:5600
 
-# Hedera Operator (Secrets — Stored out-of-band)
-HEDERA_OPERATOR_ID=0.0.xxxxxx
-HEDERA_OPERATOR_KEY=302e0201...
-HEDERA_OPERATOR_PUBLIC_KEY=89abcdef...
+# Hiero Operator (Secrets — Stored out-of-band)
+HIERO_OPERATOR_ID=0.0.xxxxxx
+HIERO_OPERATOR_KEY=302e0201...
+HIERO_OPERATOR_PUBLIC_KEY=89abcdef...
 ```
 
 ### CLI Usage Examples

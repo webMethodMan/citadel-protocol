@@ -1,15 +1,15 @@
-use crate::{SiliconProvider, Error, WorkloadIdentity};
+use crate::{SiliconProvider, Error, WorkloadIdentity, types::Mrtd};
 
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::vec;
 
 pub struct MockProvider {
-    pub expected_mrtd: [u8; 48],
+    pub expected_mrtd: Mrtd,
 }
 
 impl MockProvider {
     pub fn new(expected_mrtd: [u8; 48]) -> Self {
-        Self { expected_mrtd }
+        Self { expected_mrtd: Mrtd(expected_mrtd) }
     }
 }
 

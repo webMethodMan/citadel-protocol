@@ -50,8 +50,9 @@ impl SiliconProvider for TdxProvider {
         // According to Intel TDX Module Spec:
         // TDREPORT_STRUCT contains TDINFO_STRUCT at offset 128.
         // MRTD is at offset 384 within TDREPORT_STRUCT (which is offset 256 within TDINFO_STRUCT).
-        let mut measurement = [0u8; 48];
-        measurement.copy_from_slice(&report[384..432]);
+        let mut measurement_bytes = [0u8; 48];
+        measurement_bytes.copy_from_slice(&report[384..432]);
+        let measurement = sakshi_core::types::Mrtd(measurement_bytes);
         
         // TCB_SVN is typically at offset 512 in the TDREPORT
         let mut tcb_svn_bytes = [0u8; 2];

@@ -1,17 +1,39 @@
 use minicbor::{Encode, Decode};
+use thiserror::Error;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Error, Encode, Decode, PartialEq, Eq)]
 #[cbor(index_only)]
 pub enum Error {
+    #[error("Security violation: Technical integrity compromised")]
     #[n(0)] SecurityViolation,
+    
+    #[error("Hardware fault: TEE device failure")]
     #[n(1)] HardwareFault,
+    
+    #[error("Device error: IO or driver failure")]
     #[n(2)] DeviceError,
+    
+    #[error("Protocol mismatch: Unexpected message format")]
     #[n(3)] ProtocolMismatch,
+    
+    #[error("Initialization error: Failed to bootstrap protocol")]
     #[n(4)] InitializationError,
+
+    #[error("Policy violation: Admissibility gate refusal")]
+    #[n(5)] PolicyViolation,
+
+    #[error("Registry error: Failed to notarize or verify evidence")]
+    #[n(6)] RegistryError,
 }
+
+// Implement a simple copy for compatibility if needed, though thiserror might make it harder if we have String.
+// Since we used String in DeviceError, it's no longer Copy.
+// Let's check if we really need Copy. The original had Copy.
+// If we want to keep Copy, we can't have String.
+// For now, I'll remove Copy and see what breaks.
 
 #[derive(Debug, Clone, Encode, Decode, serde::Serialize)]
 pub struct Mudra {
@@ -59,10 +81,37 @@ pub struct ProvenanceBundle {
     #[n(1)] pub collateral: AttestationCollateral,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, serde::Serialize)]
+#[cbor(transparent)]
+pub struct Mrtd(
+    #[n(0)] 
+    #[serde(with = "serde_bytes")]
+    pub [u8; 48]
+);
+
+impl Mrtd {
+    pub fn from_hex(hex_str: &str) -> Result<Self, Error> {
+        let clean_hex = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+        let bytes = hex::decode(clean_hex).map_err(|_| Error::InitializationError)?;
+        if bytes.len() != 48 {
+            return Err(Error::InitializationError);
+        }
+        let mut mrtd = [0u8; 48];
+        mrtd.copy_from_slice(&bytes);
+        Ok(Mrtd(mrtd))
+    }
+}
+
+impl AsRef<[u8; 48]> for Mrtd {
+    fn as_ref(&self) -> &[u8; 48] {
+        &self.0
+    }
+}
+
 /// Recommendation 3: CCC and NIST alignment for Workload Identity
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct WorkloadIdentity<'a> {
-    #[n(0)] pub measurement: [u8; 48],     // MRTD / Static Identity
+    #[n(0)] pub measurement: Mrtd,         // MRTD / Static Identity
     #[n(1)] pub tcb_svn: u16,              // Security Version Number
     #[n(2)] pub hardware_root: [u8; 32],   // Root of Trust
     #[n(3)] pub runtime_claims: [u8; 32],  // RTMR / Dynamic Identity

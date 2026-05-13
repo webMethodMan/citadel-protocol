@@ -17,9 +17,14 @@ The project is divided into two primary Rust crates:
 
 ### B. `citadel-mcp-server` (The Gateway / Application Gate)
 * **Purpose:** Intercepts Model Context Protocol (MCP) JSON-RPC calls.
-* **Governance:** Uses an `AttestationPlugin` (Deterministic Floor) to check hashes against a registry (e.g., Hedera Consensus Service) before triggering hardware.
-* **Transport:** Operating as the **Gateway**, it connects the **Network Mesh** to legacy infrastructure.
-* **Trust Anchor:** Performs self — attestation on startup to verify its own MRTD (Static Identity).
+* **Governance:** Uses modular **Inbound Adapters** (SSE, Stdio, gRPC) and an `AirlockPolicyEngine` to verify intents.
+* **Transport:** Operating as the **Gateway**, it orchestrates specialized transport modules (`src/transport/`) to connect the **Network Mesh** to legacy infrastructure.
+* **Trust Anchor:** Performs self — attestation on startup to verify its own MRTD against the **Sovereign Anchor** on the Hiero ledger.
+
+### C. Specialized Adapters
+* **`citadel-adapter-hiero`**: Decoupled infrastructure adapter for evidence notarization and verification on the Hiero Consensus Service (HCS).
+* **`citadel-verifier`**: Standardized library for technical integrity validation at ingestion boundaries.
+* **`citadel-axum-adapter`**: Drop — in middleware for protecting legacy target servers.
 
 ## 3. Technical Constraints & Standards
 * **Integrator's Tone:** Follow the voice found at https://www.webmethodman.com/p/born-to-be-an-integrator (Professional, precise, technical).

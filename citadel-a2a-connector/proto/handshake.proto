@@ -22,7 +22,7 @@ message NonceResponse {
 }
 
 message AttestationRequest {
-  bytes seal = 1;           // 32-byte cryptographic seal
+  bytes seal = 1;           // 32-byte Mudra (cryptographic seal)
   bytes hardware_quote = 2; // Dynamically sized TEE quote
   string spiffe_id = 3;     // Requesting agent's identity
 }

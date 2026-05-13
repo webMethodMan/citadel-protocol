@@ -10,11 +10,15 @@ crate-type = ["rlib", "cdylib"]
 default = ["std", "alloc"]
 std = ["serde/std"]
 alloc = ["serde/alloc"]
+mock-hardware = []
 
 [dependencies]
 sha3 = { version = "0.10", default-features = false }
 ed25519-dalek = { version = "2.1", default-features = false }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_bytes = { version = "0.11", default-features = false, features = ["alloc"] }
 minicbor = { version = "0.24", default-features = false, features = ["derive", "alloc"] }
-async-trait = "0.1"
+async-trait = { workspace = true }
 lol_alloc = "0.4"
+thiserror = { workspace = true }
+hex = { workspace = true }
