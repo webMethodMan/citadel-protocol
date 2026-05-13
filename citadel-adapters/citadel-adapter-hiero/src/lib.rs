@@ -122,8 +122,8 @@ impl EvidenceVerifier for HieroProvider {
 
 #[async_trait]
 impl PramanaProvider for HieroProvider {
-    async fn verify_pramana(&self, pramana: &Pramana) -> Result<(), Error> {
-        info!("HIERO_PROVIDER: Performing Forensic Scan for Policy technical integrity...");
+    async fn verify_pramana(&self, tool_id: &str, pramana: &Pramana) -> Result<(), Error> {
+        info!("HIERO_PROVIDER: Performing Forensic Scan for {} technical integrity...", tool_id);
         
         let mirror_url = std::env::var("HIERO_MIRROR_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:5600".to_string());
         let base_url = if mirror_url.starts_with("http") { mirror_url } else { format!("http://{}", mirror_url) };
@@ -132,7 +132,7 @@ impl PramanaProvider for HieroProvider {
         let resp = reqwest::get(&url).await.map_err(|_| Error::DeviceError)?;
         let body: serde_json::Value = resp.json().await.map_err(|_| Error::DeviceError)?;
 
-        // Extract the target logic hash from the report (Mocking for now, in real it would be in the RIOM metadata)
+        // Extract the target logic hash from the report (Mocking for now)
         // For this test, we assume the report contains the RIOM hash in the first 32 bytes
         let mut expected_hash = [0u8; 32];
         expected_hash.copy_from_slice(&pramana.report[..32]);
@@ -143,16 +143,21 @@ impl PramanaProvider for HieroProvider {
                     if let Ok(decoded) = general_purpose::STANDARD.decode(contents_b64) {
                         if let Ok(event) = serde_json::from_slice::<SovereignEvent>(&decoded) {
                             if event.stage == sakshi_core::repository::LifecycleStage::PolicyUpdate {
-                                // identity_hash (Sankalpa) in event matches the logic hash we are verifying
-                                if event.sankalpa_hash == expected_hash {
-                                    info!("HIERO_PROVIDER: Policy Technical Integrity CONFIRMED via Ledger Registry");
-                                    return Ok(());
-                                } else {
-                                    // If we find a newer policy for the same tool ID (stored in tdx_quote) 
-                                    // but with a different hash, that's a Policy Drift violation.
-                                    if let Some(ref tool_id_bytes) = event.tdx_quote {
-                                        let _latest_tool_id = String::from_utf8_lossy(tool_id_bytes);
-                                        // TODO: Add tool_id mapping to verify drift correctly.
+                                // Extract tool_id from the ledger message (stored in tdx_quote)
+                                if let Some(ref tool_id_bytes) = event.tdx_quote {
+                                    let latest_tool_id = String::from_utf8_lossy(tool_id_bytes);
+                                    
+                                    if latest_tool_id == tool_id {
+                                        // Found the LATEST consensus state for this specific tool
+                                        if event.sankalpa_hash == expected_hash {
+                                            info!("HIERO_PROVIDER: Policy Technical Integrity CONFIRMED via Ledger Registry (Latest-Win)");
+                                            return Ok(());
+                                        } else {
+                                            tracing::error!("HIERO_PROVIDER: Policy Technical Integrity VIOLATION — Policy Drift detected for {}", tool_id);
+                                            tracing::error!("   Request Hash: {}", hex::encode(expected_hash));
+                                            tracing::error!("   Ledger  Hash: {}", hex::encode(event.sankalpa_hash));
+                                            return Err(Error::SecurityViolation);
+                                        }
                                     }
                                 }
                             }
@@ -162,7 +167,7 @@ impl PramanaProvider for HieroProvider {
             }
         }
 
-        tracing::error!("HIERO_PROVIDER: Policy Technical Integrity FAILED — No notarized hash found on ledger.");
+        tracing::error!("HIERO_PROVIDER: Policy Technical Integrity FAILED — No notarized hash found for {} on ledger.", tool_id);
         Err(Error::SecurityViolation)
     }
 

@@ -129,7 +129,7 @@ pub trait IntentTranslator: Send + Sync {
 /// against a hardware root of trust and a shared ledger.
 #[async_trait::async_trait]
 pub trait PramanaProvider: Send + Sync {
-    async fn verify_pramana(&self, pramana: &Pramana) -> Result<(), Error>;
+    async fn verify_pramana(&self, tool_id: &str, pramana: &Pramana) -> Result<(), Error>;
     async fn notarize_pramana(&self, pramana: &Pramana) -> Result<(), Error>;
     async fn verify_sakshi_integrity(&self, measurement: &[u8; 48]) -> Result<(), Error>;
 }

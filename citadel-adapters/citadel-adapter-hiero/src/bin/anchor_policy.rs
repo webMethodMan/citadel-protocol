@@ -12,7 +12,7 @@ struct Args {
     tool_id: String,
 
     /// The hex-encoded 32-byte logic hash (engineCodeHash) to notarize.
-    #[clap(short, long)]
+    #[clap(long)]
     hash: String,
 
     /// Optional SPIFFE ID for the authority.

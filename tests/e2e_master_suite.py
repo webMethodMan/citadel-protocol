@@ -31,9 +31,11 @@ def setup_hiero_policy(tool_id, hash_hex):
         "--tool-id", tool_id,
         "--hash", hash_hex
     ]
-    # Set Topic ID for the tool
+    # Set Topic ID and Credentials for the tool (Bypassing non-persistent keyring)
     env = os.environ.copy()
     env["HIERO_TOPIC_ID"] = TOPIC_ID
+    env["HIERO_OPERATOR_ID"] = "0.0.8812975"
+    env["HIERO_OPERATOR_KEY"] = "302e020100300506032b657004220420c0280c523f7867de190c84ca0b0ddd7f392960673c573d1aef3c0bdae1f51768"
     subprocess.run(cmd, env=env, check=True)
     print("✅ Ledger Notarized.")
 

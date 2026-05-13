@@ -213,10 +213,13 @@ pub async fn perform_sakshi_attestation(
         }
     };
     
-    // Verify the Pramana against the PramanaProvider as requested
-    let _ = state.connector.verify_pramana(&pramana).await;
+    // Verify the Pramana against the PramanaProvider (Forensic Scan of Ledger)
+    state.connector.verify_pramana(tool_name, &pramana).await.map_err(|e| {
+        error!("TECHNICAL INTEGRITY VIOLATION: Policy verification failed for {}: {:?}", tool_name, e);
+        e
+    })?;
     
-    // Notarize the Pramana to the ledger
+    // Notarize the Pramana to the ledger (WORM WELD)
     let _ = state.connector.notarize_pramana(&pramana).await;
     
     Ok(mudra)
