@@ -52,10 +52,6 @@ impl CitadelConfig {
     }
 }
 
-pub trait PolicyProvider: Send + Sync {
-    fn get_authorized_hashes(&self) -> Vec<String>;
-}
-
 pub struct JsonFilePolicy {
     pub config: CitadelConfig,
 }
@@ -75,11 +71,5 @@ impl JsonFilePolicy {
         config.validate()?;
             
         Ok(Self { config })
-    }
-}
-
-impl PolicyProvider for JsonFilePolicy {
-    fn get_authorized_hashes(&self) -> Vec<String> {
-        self.config.authorized_tools.values().map(|t| t.hash.clone()).collect()
     }
 }

@@ -150,11 +150,9 @@ impl PramanaProvider for HieroProvider {
                                 } else {
                                     // If we find a newer policy for the same tool ID (stored in tdx_quote) 
                                     // but with a different hash, that's a Policy Drift violation.
-                                    // Note: This logic assumes tdx_quote contains the tool_id string.
                                     if let Some(ref tool_id_bytes) = event.tdx_quote {
-                                        let latest_tool_id = String::from_utf8_lossy(tool_id_bytes);
+                                        let _latest_tool_id = String::from_utf8_lossy(tool_id_bytes);
                                         // TODO: Add tool_id mapping to verify drift correctly.
-                                        // For now, if we match the hash, we are good.
                                     }
                                 }
                             }
