@@ -12,6 +12,7 @@ pub enum LifecycleStage {
     #[n(1)] SankalpaIntent,
     #[n(2)] ExecutionCompletion,
     #[n(3)] SystemFailure,
+    #[n(4)] SovereignAnchor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]

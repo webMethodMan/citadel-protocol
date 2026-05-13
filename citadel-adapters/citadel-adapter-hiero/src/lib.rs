@@ -65,7 +65,8 @@ use base64::{engine::general_purpose, Engine as _};
 impl EvidenceVerifier for HieroProvider {
     async fn check_notarization(&self, mudra_seal: &[u8; 32]) -> Result<bool, EvidenceError> {
         let mirror_url = std::env::var("HIERO_MIRROR_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:5600".to_string());
-        let url = format!("http://{}/api/v1/topics/{}/messages", mirror_url, self.topic_id);
+        let base_url = if mirror_url.starts_with("http") { mirror_url } else { format!("http://{}", mirror_url) };
+        let url = format!("{}/api/v1/topics/{}/messages", base_url, self.topic_id);
         
         info!("HIERO_VERIFIER: Checking notarization for Mudra {}...", hex::encode(&mudra_seal[..4]));
 
@@ -77,10 +78,15 @@ impl EvidenceVerifier for HieroProvider {
             for msg in messages {
                 if let Some(contents_b64) = msg.get("contents").and_then(|c| c.as_str()) {
                     if let Ok(decoded) = general_purpose::STANDARD.decode(contents_b64) {
-                        if let Ok(event) = serde_json::from_slice::<SovereignEvent>(&decoded) {
-                            if &event.sankalpa_hash == mudra_seal {
-                                info!("HIERO_VERIFIER: Notarization CONFIRMED on HCS Topic {}", self.topic_id);
-                                return Ok(true);
+                        match serde_json::from_slice::<SovereignEvent>(&decoded) {
+                            Ok(event) => {
+                                if &event.sankalpa_hash == mudra_seal {
+                                    info!("HIERO_VERIFIER: Notarization CONFIRMED on HCS Topic {}", self.topic_id);
+                                    return Ok(true);
+                                }
+                            },
+                            Err(e) => {
+                                tracing::debug!("HIERO_VERIFIER: Failed to decode message as SovereignEvent: {}", e);
                             }
                         }
                     }
@@ -94,16 +100,257 @@ impl EvidenceVerifier for HieroProvider {
 
 #[async_trait]
 impl PramanaProvider for HieroProvider {
-    async fn verify_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
-        Ok(())
+    async fn verify_pramana(&self, pramana: &Pramana) -> Result<(), Error> {
+        use sakshi_core::Sha3_256Hasher;
+        use sakshi_core::SankalpaHasher;
+        
+        let hasher = Sha3_256Hasher;
+        let seal = hasher.hash(&[&pramana.report]);
+        
+        match self.check_notarization(&seal).await {
+            Ok(true) => {
+                info!("HIERO_PROVIDER: Pramana verification successful for seal {}", hex::encode(&seal[..4]));
+                Ok(())
+            },
+            Ok(false) => {
+                tracing::error!("HIERO_PROVIDER: Pramana verification FAILED — Notarization not found.");
+                Err(Error::SecurityViolation)
+            },
+            Err(e) => {
+                tracing::error!("HIERO_PROVIDER: Transport error during Pramana verification: {:?}", e);
+                Err(Error::DeviceError)
+            }
+        }
     }
 
-    async fn notarize_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
+    async fn notarize_pramana(&self, pramana: &Pramana) -> Result<(), Error> {
         info!("HIERO_PROVIDER: Notarizing Pramana to Topic {}", self.topic_id);
+        
+        // Construct a SovereignEvent for the intent
+        // In a real scenario, we might need more metadata here.
+        let event = SovereignEvent {
+            stage: sakshi_core::repository::LifecycleStage::SankalpaIntent,
+            sankalpa_hash: [0u8; 32], // This should be the seal, but Pramana doesn't have it explicitly
+            ve_decay_rate: 1.0,
+            spiffe_id: "citadel-gateway".to_string(),
+            tdx_quote: Some(pramana.report.clone()),
+            response_hash: None,
+            error_message: None,
+        };
+        
+        // Calculate the seal for the event
+        use sakshi_core::Sha3_256Hasher;
+        use sakshi_core::SankalpaHasher;
+        let hasher = Sha3_256Hasher;
+        let seal = hasher.hash(&[&pramana.report]);
+        
+        let mut event = event;
+        event.sankalpa_hash = seal;
+
+        self.append_evidence(event).await
+            .map_err(|e| {
+                tracing::error!("HIERO_PROVIDER: Failed to notarize Pramana: {:?}", e);
+                Error::DeviceError
+            })?;
+            
         Ok(())
     }
 
-    async fn verify_sakshi_integrity(&self, _measurement: &[u8; 48]) -> Result<(), Error> {
+    async fn verify_sakshi_integrity(&self, measurement: &[u8; 48]) -> Result<(), Error> {
+        info!("HIERO_PROVIDER: Verifying Sakshi Integrity against Sovereign Anchor...");
+        
+        let mirror_url = std::env::var("HIERO_MIRROR_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:5600".to_string());
+        // Fix: Use http:// if not present
+        let base_url = if mirror_url.starts_with("http") { mirror_url } else { format!("http://{}", mirror_url) };
+        let url = format!("{}/api/v1/topics/{}/messages", base_url, self.topic_id);
+        
+        let resp = reqwest::get(&url).await.map_err(|_| Error::DeviceError)?;
+        let body: serde_json::Value = resp.json().await.map_err(|_| Error::DeviceError)?;
+
+        if let Some(messages) = body.get("messages").and_then(|m| m.as_array()) {
+            // Scan backwards for the latest anchor
+            for msg in messages.iter().rev() {
+                if let Some(contents_b64) = msg.get("contents").and_then(|c| c.as_str()) {
+                    if let Ok(decoded) = general_purpose::STANDARD.decode(contents_b64) {
+                        if let Ok(event) = serde_json::from_slice::<SovereignEvent>(&decoded) {
+                            if event.stage == sakshi_core::repository::LifecycleStage::SovereignAnchor {
+                                if let Some(ref anchor_measurement) = event.tdx_quote {
+                                    if anchor_measurement == measurement {
+                                        info!("HIERO_PROVIDER: Sakshi Integrity CONFIRMED via Sovereign Anchor");
+                                        return Ok(());
+                                    } else {
+                                        tracing::error!("HIERO_PROVIDER: Sakshi Integrity VIOLATION — Measurement mismatch!");
+                                        return Err(Error::SecurityViolation);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::warn!("HIERO_PROVIDER: No Sovereign Anchor found on topic {}. Technical Integrity cannot be verified.", self.topic_id);
+        // In strict mode, this should probably fail. For now, we'll return an error if configured.
+        if std::env::var("STRICT_INTEGRITY").is_ok() {
+            return Err(Error::SecurityViolation);
+        }
+        
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockito::Server;
+    use sakshi_core::repository::LifecycleStage;
+    use serial_test::serial;
+
+    #[tokio::test]
+    #[serial]
+    async fn test_hiero_verify_sakshi_integrity() {
+        let mut server = Server::new_async().await;
+        let mirror_url = server.host_with_port();
+        std::env::set_var("HIERO_MIRROR_NODE_ADDRESS", &mirror_url);
+
+        let measurement = [0xAAu8; 48];
+        let event = SovereignEvent {
+            stage: LifecycleStage::SovereignAnchor,
+            sankalpa_hash: [0u8; 32],
+            ve_decay_rate: 1.0,
+            spiffe_id: "test".to_string(),
+            tdx_quote: Some(measurement.to_vec()),
+            response_hash: None,
+            error_message: None,
+        };
+        let payload = serde_json::to_vec(&event).unwrap();
+        let payload_b64 = general_purpose::STANDARD.encode(payload);
+
+        let body = serde_json::json!({
+            "messages": [
+                {
+                    "contents": payload_b64,
+                    "consensus_timestamp": "123456789.000000001",
+                    "topic_id": "0.0.123456"
+                }
+            ]
+        });
+
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&body).unwrap())
+            .create_async().await;
+
+        // Mock HieroProvider (client won't be used for verify_sakshi_integrity)
+        // We use a dummy topic_id that matches the mock URL
+        let provider = HieroProvider {
+            client: Client::for_testnet(),
+            topic_id: "0.0.123456".parse().unwrap(),
+        };
+
+        let res = provider.verify_sakshi_integrity(&measurement).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_hiero_check_notarization() {
+        let mut server = Server::new_async().await;
+        let mirror_url = server.host_with_port();
+        std::env::set_var("HIERO_MIRROR_NODE_ADDRESS", &mirror_url);
+
+        let seal = [0x55u8; 32];
+        let event = SovereignEvent {
+            stage: LifecycleStage::SankalpaIntent,
+            sankalpa_hash: seal,
+            ve_decay_rate: 0.95,
+            spiffe_id: "test-agent".to_string(),
+            tdx_quote: None,
+            response_hash: None,
+            error_message: None,
+        };
+        let payload = serde_json::to_vec(&event).unwrap();
+        let payload_b64 = general_purpose::STANDARD.encode(payload);
+
+        let body = serde_json::json!({
+            "messages": [
+                {
+                    "contents": payload_b64,
+                    "consensus_timestamp": "123456789.000000002",
+                    "topic_id": "0.0.123456"
+                }
+            ]
+        });
+
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&body).unwrap())
+            .create_async().await;
+
+        let provider = HieroProvider {
+            client: Client::for_testnet(),
+            topic_id: "0.0.123456".parse().unwrap(),
+        };
+
+        let res = provider.check_notarization(&seal).await;
+        assert!(res.unwrap());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_hiero_verify_pramana() {
+        let mut server = Server::new_async().await;
+        let mirror_url = server.host_with_port();
+        std::env::set_var("HIERO_MIRROR_NODE_ADDRESS", &mirror_url);
+
+        let report = vec![0x11u8; 1024];
+        let pramana = Pramana {
+            report: report.clone(),
+            ledger_hash: None,
+        };
+
+        use sakshi_core::Sha3_256Hasher;
+        use sakshi_core::SankalpaHasher;
+        let hasher = Sha3_256Hasher;
+        let seal = hasher.hash(&[&report]);
+
+        let event = SovereignEvent {
+            stage: LifecycleStage::SankalpaIntent,
+            sankalpa_hash: seal,
+            ve_decay_rate: 1.0,
+            spiffe_id: "test".to_string(),
+            tdx_quote: Some(report),
+            response_hash: None,
+            error_message: None,
+        };
+        let payload = serde_json::to_vec(&event).unwrap();
+        let payload_b64 = general_purpose::STANDARD.encode(payload);
+
+        let body = serde_json::json!({
+            "messages": [
+                {
+                    "contents": payload_b64,
+                    "consensus_timestamp": "123456789.000000003",
+                    "topic_id": "0.0.123456"
+                }
+            ]
+        });
+
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&body).unwrap())
+            .create_async().await;
+
+        let provider = HieroProvider {
+            client: Client::for_testnet(),
+            topic_id: "0.0.123456".parse().unwrap(),
+        };
+
+        let res = provider.verify_pramana(&pramana).await;
+        assert!(res.is_ok());
     }
 }
