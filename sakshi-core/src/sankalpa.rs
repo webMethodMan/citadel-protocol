@@ -130,7 +130,7 @@ pub trait IntentTranslator: Send + Sync {
 #[async_trait::async_trait]
 pub trait PramanaProvider: Send + Sync {
     async fn verify_pramana(&self, tool_id: &str, pramana: &Pramana) -> Result<(), Error>;
-    async fn notarize_pramana(&self, pramana: &Pramana) -> Result<(), Error>;
+    async fn notarize_pramana(&self, pramana: &Pramana) -> Result<u64, Error>;
     async fn verify_sakshi_integrity(&self, measurement: &[u8; 48]) -> Result<(), Error>;
 }
 
@@ -142,7 +142,7 @@ pub trait AirlockPolicyEngine: Send + Sync {
         credential: &VerifiableCredential,
         env: &EnvironmentContext,
         hasher: &dyn SankalpaHasher,
-    ) -> Result<(), Error>;
+    ) -> Result<[u8; 32], Error>;
 }
 
 pub struct DeterministicAirlock;
@@ -154,7 +154,7 @@ impl AirlockPolicyEngine for DeterministicAirlock {
         credential: &VerifiableCredential,
         env: &EnvironmentContext,
         hasher: &dyn SankalpaHasher,
-    ) -> Result<(), Error> {
+    ) -> Result<[u8; 32], Error> {
         // 1. Temporal Window Envelope (Hard-fail on logical discontinuity)
         if env.current_timestamp != 0 && (env.current_timestamp < credential.valid_from || env.current_timestamp > credential.valid_until) {
             return Err(Error::SecurityViolation);
@@ -171,6 +171,6 @@ impl AirlockPolicyEngine for DeterministicAirlock {
             return Err(Error::SecurityViolation);
         }
 
-        Ok(())
+        Ok(intent_hash)
     }
 }

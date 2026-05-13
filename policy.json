@@ -35,5 +35,7 @@
   },
   "a2a_url": "127.0.0.1:50051",
   "spiffe_id": "spiffe://citadel.internal/gateway/primary",
-  "ve_threshold": 0.90
+  "ve_threshold": 0.90,
+  "hiero_vault_topic_id": "0.0.8941781",
+  "hiero_gov_topic_id": "0.0.8941781"
 }

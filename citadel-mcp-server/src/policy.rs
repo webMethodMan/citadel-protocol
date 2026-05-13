@@ -30,6 +30,8 @@ pub struct CitadelConfig {
     pub spiffe_id: Option<String>,
     pub ve_threshold: Option<f64>,
     pub hiero_topic_id: Option<String>,
+    pub hiero_vault_topic_id: Option<String>,
+    pub hiero_gov_topic_id: Option<String>,
     pub resource_context: Option<String>,
     pub identity_context: Option<String>,
 }

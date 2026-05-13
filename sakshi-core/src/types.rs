@@ -39,6 +39,7 @@ pub enum Error {
 pub struct Mudra {
     #[n(0)] pub seal: [u8; 32],
     #[n(1)] #[cbor(with = "minicbor::bytes")] pub hardware_quote: Vec<u8>,
+    #[n(2)] pub sequence_number: Option<u64>,
 }
 
 /// Pramana (The Admissible Proof): The unforgeable artifact attesting to the deterministic

@@ -220,7 +220,10 @@ pub async fn perform_sakshi_attestation(
     })?;
     
     // Notarize the Pramana to the ledger (WORM WELD)
-    let _ = state.connector.notarize_pramana(&pramana).await;
+    let mut mudra = mudra;
+    if let Ok(seq) = state.connector.notarize_pramana(&pramana).await {
+        mudra.sequence_number = Some(seq);
+    }
     
     Ok(mudra)
 }
@@ -269,7 +272,11 @@ pub async fn handle_proxy_destination(
         error_message: None,
     };
     
-    let _ = state.evidence_repo.append_evidence(event).await;
+    let mut mudra = mudra;
+    if let Ok(seq) = state.evidence_repo.append_evidence(event).await {
+        mudra.sequence_number = Some(seq);
+        info!("Execution Completion notarized at Sequence {}", seq);
+    }
 
     Ok(McpResponse {
         jsonrpc: "2.0".to_string(), result: Some(body),
@@ -403,12 +410,15 @@ pub async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> Mc
         }
     }
 
-    let (identity_pem, cert_hash, spiffe_id) = create_ephemeral_mtls_cert().unwrap();
+    // Security & Latency: Reuse the long-lived session identity from AppState
+    let identity_pem = state.identity_pem.clone();
+    let cert_hash = state.cert_hash;
+    let spiffe_id = state.spiffe_id.clone();
     let effective_spiffe = spiffe_id.clone().unwrap_or_else(|| "spiffe://citadel.internal/anonymous".to_string());
     
     // Resolve matrix behavior with real SPIFFE ID and telemetry
     match perform_sakshi_attestation(&*state, tool_name, mudra_val, resource_val, spiffe_id, [0u8; 32], cert_hash, telemetry.clone()).await {
-        Ok(mudra) => {
+        Ok(mut mudra) => {
             info!("{}", state.lang_pack.attestation_passed(&hex::encode(&mudra.seal[..8])));
             // Task 2: WORM WELD via PramanaRepository (Intent Stage)
             let event = SovereignEvent {
@@ -427,8 +437,9 @@ pub async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> Mc
             });
 
             match append_future.await {
-                Ok(Ok(_)) => {
+                Ok(Ok(seq)) => {
                     info!("{}", state.lang_pack.notarization_success());
+                    mudra.sequence_number = Some(seq);
                 },
                 Ok(Err(e)) => {
                     error!("{}", state.lang_pack.notarization_error(&format!("{:?}", e)));

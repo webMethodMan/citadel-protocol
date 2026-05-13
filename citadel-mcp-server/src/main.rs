@@ -87,8 +87,14 @@ impl ProviderFactory {
         }
 
         #[cfg(feature = "hiero")] {
-            let topic_id = config.hiero_topic_id.as_deref().unwrap_or("0.0.123456").to_string();
-            return Box::new(citadel_adapter_hiero::HieroProvider::new(&topic_id, Some(store)).await.expect("Failed to create HieroProvider"));
+            let vault_topic = config.hiero_vault_topic_id.as_deref()
+                .or(config.hiero_topic_id.as_deref())
+                .unwrap_or("0.0.123456").to_string();
+            let gov_topic = config.hiero_gov_topic_id.as_deref()
+                .or(config.hiero_topic_id.as_deref())
+                .unwrap_or("0.0.123456").to_string();
+
+            return Box::new(citadel_adapter_hiero::HieroProvider::new(&vault_topic, &gov_topic, Some(store)).await.expect("Failed to create HieroProvider"));
         }
 
         #[cfg(not(feature = "hiero"))] {
@@ -96,8 +102,8 @@ impl ProviderFactory {
             struct MockPramanaProvider;
             #[async_trait::async_trait]
             impl PramanaProvider for MockPramanaProvider {
-                async fn verify_pramana(&self, _p: &Pramana) -> Result<(), Error> { Ok(()) }
-                async fn notarize_pramana(&self, _p: &Pramana) -> Result<(), Error> { Ok(()) }
+                async fn verify_pramana(&self, _id: &str, _p: &Pramana) -> Result<(), Error> { Ok(()) }
+                async fn notarize_pramana(&self, _p: &Pramana) -> Result<u64, Error> { Ok(0) }
                 async fn verify_sakshi_integrity(&self, _m: &[u8; 48]) -> Result<(), Error> { Ok(()) }
             }
             Box::new(MockPramanaProvider)
@@ -137,6 +143,9 @@ pub struct AppState {
     pub ve_threshold: f64,
     pub telemetry_public_key: [u8; 32],
     pub verbose: bool,
+    pub identity_pem: Vec<u8>,
+    pub cert_hash: [u8; 32],
+    pub spiffe_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -181,28 +190,35 @@ async fn main() -> io::Result<()> {
     let token = tokio_util::sync::CancellationToken::new();
     let lang_pack: Arc<dyn CitadelLanguagePack> = Arc::new(EnglishLanguagePack);
 
-    let evidence_repo: Arc<dyn PramanaRepository> = if let Some(topic_id) = config.hiero_topic_id.as_ref() {
-        #[cfg(feature = "hiero")] {
-            Arc::new(citadel_adapter_hiero::HieroProvider::new(topic_id, Some(&secret_store)).await.expect("Failed to init Hiero repo"))
-        }
-        #[cfg(not(feature = "hiero"))] {
-            let _ = topic_id;
+    let evidence_repo: Arc<dyn PramanaRepository> = {
+        let vault_topic = config.hiero_vault_topic_id.as_ref()
+            .or(config.hiero_topic_id.as_ref());
+        let gov_topic = config.hiero_gov_topic_id.as_ref()
+            .or(config.hiero_topic_id.as_ref());
+
+        if let (Some(vault), Some(gov)) = (vault_topic, gov_topic) {
+            #[cfg(feature = "hiero")] {
+                Arc::new(citadel_adapter_hiero::HieroProvider::new(vault, gov, Some(&secret_store)).await.expect("Failed to init Hiero repo"))
+            }
+            #[cfg(not(feature = "hiero"))] {
+                let _ = (vault, gov);
+                struct MockEvidenceRepo;
+                #[async_trait::async_trait]
+                impl PramanaRepository for MockEvidenceRepo {
+                    async fn append_evidence(&self, _event: SovereignEvent) -> Result<u64, EvidenceError> { Ok(0) }
+                }
+                Arc::new(MockEvidenceRepo)
+            }
+        } else {
             struct MockEvidenceRepo;
             #[async_trait::async_trait]
             impl PramanaRepository for MockEvidenceRepo {
-                async fn append_evidence(&self, _event: SovereignEvent) -> Result<(), EvidenceError> { Ok(()) }
+                async fn append_evidence(&self, _event: SovereignEvent) -> Result<u64, EvidenceError> {
+                    Ok(0)
+                }
             }
             Arc::new(MockEvidenceRepo)
         }
-    } else {
-        struct MockEvidenceRepo;
-        #[async_trait::async_trait]
-        impl PramanaRepository for MockEvidenceRepo {
-            async fn append_evidence(&self, _event: SovereignEvent) -> Result<(), EvidenceError> {
-                Ok(())
-            }
-        }
-        Arc::new(MockEvidenceRepo)
     };
 
     let ve_threshold = args.ve_threshold
@@ -239,12 +255,17 @@ async fn main() -> io::Result<()> {
         warn!("IDENTITY: No telemetry verification key found. Telemetry verification will fail in production.");
     }
 
+    // 4. Generate Server mTLS Identity (exactly once)
+    let (identity_pem, cert_hash, spiffe_id) = crate::mcp::create_ephemeral_mtls_cert()
+        .expect("Failed to generate server mTLS identity");
+
     let state = Arc::new(AppState {
         connector, silicon, hasher: Box::new(Sha3_256Hasher), translator: Box::new(McpTranslator),
         policy_engine: Box::new(DeterministicAirlock), comparator: Box::new(ThresholdComparator),
         evidence_repo, lang_pack, http_client: reqwest::Client::new(),
         token: token.clone(), config: config.clone(), logic_mode: args.logic, 
         ve_threshold, telemetry_public_key, verbose: args.verbose,
+        identity_pem, cert_hash, spiffe_id,
     });
 
     perform_sovereign_bootstrap(&state).await.expect("Bootstrap fail — Technical Integrity Violation");

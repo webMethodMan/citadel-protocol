@@ -76,8 +76,8 @@ impl PramanaProvider for A2AConnector {
         Ok(())
     }
 
-    async fn notarize_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
-        Ok(())
+    async fn notarize_pramana(&self, _pramana: &Pramana) -> Result<u64, Error> {
+        Ok(0)
     }
 
     async fn verify_sakshi_integrity(&self, _measurement: &[u8; 48]) -> Result<(), Error> {

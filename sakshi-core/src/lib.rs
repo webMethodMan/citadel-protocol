@@ -65,32 +65,32 @@ pub fn verify_and_gate(
     spiffe_id: Option<&str>,
     bypass_signature: bool,
 ) -> Result<(Pramana, Mudra), Error> {
-    if !bypass_signature {
+    let proof = if !bypass_signature {
         // 1. Perform Granular Admissibility Check (W3C VC Validation)
-        policy_engine.evaluate_admissibility(intent, credential, env, hasher)?;
+        let intent_hash = policy_engine.evaluate_admissibility(intent, credential, env, hasher)?;
 
         // 2. The Ingestion Boundary: Verify Telemetry Signature inside TEE
         let vk = VerifyingKey::from_bytes(telemetry_public_key).map_err(|_| Error::SecurityViolation)?;
         let sig = Signature::from_bytes(&telemetry.signature);
         vk.verify(&telemetry.state.to_bytes(), &sig).map_err(|_| Error::SecurityViolation)?;
-    }
+        
+        intent_hash
+    } else {
+        intent.generate_auth_hash(hasher)?
+    };
 
     // 3. The Evaluation Logic: Deterministic Synthesis Check
     // "Does Current_MTCP_Decay <= Sankalpa_Max_Decay?"
     comparator.evaluate_synthesis(&telemetry.state, intent)?;
 
-    // 4. Weld RIOM (Intent Hash), cert_hash, and SPIFFE ID into the Silicon Truth (TDREPORT)
-    let proof = intent.generate_auth_hash(hasher)?;
-    
+    // 4. Weld Proof (Intent Hash), cert_hash, and SPIFFE ID into the Silicon Truth (TDREPORT)
     let mut spiffe_hash = [0u8; 32];
     if let Some(id) = spiffe_id {
         spiffe_hash = hasher.hash(&[id.as_bytes()]);
     }
 
-    let mut report_data = [0u8; 32];
-    for i in 0..32 {
-        report_data[i] = proof[i] ^ cert_hash[i] ^ spiffe_hash[i];
-    }
+    // Security Hardening: Strong cryptographic binding via hash concatenation instead of XOR
+    let report_data = hasher.hash(&[&proof, cert_hash, &spiffe_hash]);
 
     let report = provider.get_report(report_data)?;
     let bundle = provider.generate_bundle(&report)?;
@@ -107,6 +107,7 @@ pub fn verify_and_gate(
     Ok((pramana, Mudra {
         seal,
         hardware_quote: bundle.quote,
+        sequence_number: None,
     }))
 }
 

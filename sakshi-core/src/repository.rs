@@ -37,11 +37,15 @@ pub enum EvidenceError {
 
 #[async_trait]
 pub trait PramanaRepository: Send + Sync {
-    async fn append_evidence(&self, event: SovereignEvent) -> Result<(), EvidenceError>;
+    /// Appends evidence to the repository and returns the sequence number (u64)
+    async fn append_evidence(&self, event: SovereignEvent) -> Result<u64, EvidenceError>;
 }
 
 #[async_trait]
 pub trait EvidenceVerifier: Send + Sync {
     /// Checks if a specific intent (Mudra seal) has been notarized on the ledger.
     async fn check_notarization(&self, mudra_seal: &[u8; 32]) -> Result<bool, EvidenceError>;
+
+    /// Performs an O(1) lookup at a specific sequence number to verify admissibility.
+    async fn verify_at_sequence(&self, sequence_number: u64, expected_sankalpa_hash: &[u8; 32]) -> Result<bool, EvidenceError>;
 }

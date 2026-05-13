@@ -5,7 +5,8 @@ import time
 import sys
 
 # Configuration
-TOPIC_ID = "0.0.8941781"
+VAULT_TOPIC_ID = "0.0.8941781"
+GOV_TOPIC_ID = "0.0.8941781" # Using same for now, but configured separately
 GATEWAY_URL = "http://127.0.0.1:9000/mcp"
 BACKEND_PORT = 8080
 
@@ -33,7 +34,8 @@ def setup_hiero_policy(tool_id, hash_hex):
     ]
     # Set Topic ID and Credentials for the tool (Bypassing non-persistent keyring)
     env = os.environ.copy()
-    env["HIERO_TOPIC_ID"] = TOPIC_ID
+    env["HIERO_VAULT_TOPIC_ID"] = VAULT_TOPIC_ID
+    env["HIERO_GOV_TOPIC_ID"] = GOV_TOPIC_ID
     env["HIERO_OPERATOR_ID"] = "0.0.8806472"
     env["HIERO_OPERATOR_KEY"] = "10db1d6250dcd971684d9c60eb8671c6f9cbf19128898de0e1448104df62f604"
     subprocess.run(cmd, env=env, check=True)

@@ -23,8 +23,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
-    let topic_id = std::env::var("HIERO_TOPIC_ID")
-        .expect("HIERO_TOPIC_ID must be set in .env or environment");
+    let vault_topic = std::env::var("HIERO_VAULT_TOPIC_ID")
+        .or_else(|_| std::env::var("HIERO_TOPIC_ID"))
+        .expect("HIERO_VAULT_TOPIC_ID or HIERO_TOPIC_ID must be set");
+    let gov_topic = std::env::var("HIERO_GOV_TOPIC_ID")
+        .or_else(|_| std::env::var("HIERO_TOPIC_ID"))
+        .expect("HIERO_GOV_TOPIC_ID or HIERO_TOPIC_ID must be set");
 
     // 1. Initialize SecretStore
     // Updated secret store initialization
@@ -39,10 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("MRTD must be exactly 48 bytes (got {})", mrtd_bytes.len()).into());
     }
 
-    info!("🚀 Initializing Sovereign Anchor for Topic {}...", topic_id);
+    info!("🚀 Initializing Sovereign Anchor for Topic {}...", vault_topic);
     info!("Golden MRTD: {}", args.mrtd);
 
-    let provider = HieroProvider::new_with_prefix(&topic_id, Some(&secret_store), "hiero-governance").await?;
+    let provider = HieroProvider::new_with_prefix(&vault_topic, &gov_topic, Some(&secret_store), "hiero-governance").await?;
 
     // 3. Construct the SovereignAnchor event
     let event = SovereignEvent {
@@ -57,10 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Notarize to HCS
     info!("📥 Submitting Sovereign Anchor to Hedera Consensus Service...");
-    provider.append_evidence(event).await?;
+    let seq = provider.append_evidence(event).await?;
     
     // Corrected success message to use 'mrtd' instead of 'tool_id'
-    info!("✅ SUCCESS: MRTD anchored for {}...", args.mrtd); 
+    info!("✅ SUCCESS: MRTD anchored for {} at Sequence {}.", args.mrtd, seq); 
 
     Ok(())
 }

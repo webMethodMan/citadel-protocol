@@ -5,6 +5,19 @@
 
 In an era of autonomous agents, the Citadel Protocol acts as a deterministic gatekeeper — a Silicon Airlock for AI agents to interact with legacy systems only after intent has been cryptographically notarized by a Trusted Execution Environment (TEE).
 
+## Architectural Foundations (The Dual-Topic Model)
+
+To achieve sub-10ms verification latency on public ledgers without a local database, Citadel employs a **Dual-Topic Domain Boundary** architecture on the Hedera Consensus Service (HCS):
+
+*   **Topic A: The Pramana Vault (High Throughput)**: Stores every fused Pramana (MTCP Evidence + TEE Hardware Witness). Messages are indexed by a globally unique **Sequence Number**.
+*   **Topic B: Policy Governance (High Security)**: Stores cryptographic hashes of authorized rulesets. The Gateway maintains a background-polling cache of this topic for near-instant memory lookups.
+
+### The Sub-10ms O(1) Verification Secret
+Instead of linear ledger scans, Citadel leverages the Hedera **Topic Sequence Number**. When a Pramana is notarized, the Gateway receives a unique coordinate (e.g., Sequence #62). This coordinate is handed back to the agent in the **Mudra** seal. Subsequent verification is an $O(1)$ direct REST call to the Mirror Node, meeting strict performance budgets for real-time agentic interactions.
+
+## Separation of Concerns: Telemetry & Validation
+The Citadel Protocol operates as a specialized **Validation Layer**. It does not perform model analysis or generate telemetry; these are the purview of 3rd-party MTCP Measurement Nodes. Citadel strictly **reads and verifies** signed telemetry at the ingestion boundary, ensuring that only "admissible" intents are notarized by the hardware.
+
 ## The Lexicon of Citadel (The Sovereign Spine)
 
 To resolve the structural fragility of probabilistic governance, we employ a deterministic ontology anchored in Sanskrit:
@@ -33,8 +46,9 @@ Citadel enforces a **Fail — Closed** security posture via the `PramanaReposito
     *   **`SankalpaIntent`**: Recorded upon successful hardware attestation, binding the quote to the intent.
     *   **`ExecutionCompletion`**: Recorded after proxy execution, binding the response hash to the original intent.
     *   **`SystemFailure`**: Recorded if an unexpected error occurs during attestation or proxying.
-*   **Hiero Consensus Service (HCS)**: The default production repository. It submits `SovereignEvents` to a public HCS Topic.
-*   **Terminal Refusal**: The gateway applies a strict **50ms timeout** on evidence submission during the Intent stage. Failure to notarize triggers a Terminal Refusal.
+*   **Hiero Consensus Service (HCS)**: The default production repository. It routes events to the **Pramana Vault** or **Policy Governance** topic based on the event stage.
+*   **Sequence-Based Provenance**: Every notarized event returns a `u64` sequence number, enabling $O(1)$ instantaneous verification.
+*   **Terminal Refusal**: The gateway applies a strict **50ms timeout** on evidence submission. Failure to notarize triggers a Terminal Refusal.
 
 ## Core Architecture & Modularization
 
@@ -42,9 +56,9 @@ The Citadel Protocol is structured into specialized crates and modules to ensure
 
 *   **`sakshi-core`**: The "no_std" core defining the foundational traits (**Sankalpa**, **Mudra**, **SiliconProvider**) and the primary `verify_and_gate` orchestration logic.
 *   **`citadel-verifier`**: A new specialized crate for TEE-signed Pramana verification and identity extraction.
-*   **`citadel-mcp-server`**: The Gateway implementation, now refactored for high maintainability:
-    *   `src/main.rs`: High-level orchestration, now using consolidated configuration.
-    *   `src/policy.rs`: Unified **CitadelConfig** schema for both environment and tool policies.
+*   **`citadel-mcp-server`**: The Gateway implementation, now optimized for high-frequency interactions:
+    *   `src/main.rs`: Orchestration using long-lived session identities and dual-topic routing.
+    *   `src/policy.rs`: Unified configuration supporting `hiero_vault_topic_id` and `hiero_gov_topic_id`.
     *   `src/mcp.rs`: Decoupled JSON-RPC protocol structures and MCP handling logic.
 *   **`citadel-a2a-connector`**: The Peer-to-Peer (Agent-to-Agent) gRPC bridge for decentralized attestation.
 
@@ -75,7 +89,8 @@ The `policy.json` file serves as the primary source of truth for the gateway's g
 {
   "environment": "development",
   "ve_threshold": 0.90,
-  "hiero_topic_id": "0.0.123456",
+  "hiero_vault_topic_id": "0.0.8941781",
+  "hiero_gov_topic_id": "0.0.8941781",
   "authorized_tools": {
     "webMethods_Flow_Alpha": {
       "hash": "a8dd1f8b061dc276403a9b2a6c354f672958071d72d6d088ca6397b59e665f27",
@@ -87,7 +102,8 @@ The `policy.json` file serves as the primary source of truth for the gateway's g
 ```
 
 *   **`ve_threshold`**: The default $V_e$ stability threshold for the admissibility gate.
-*   **`hiero_topic_id`**: The public HCS topic for evidence notarization.
+*   **`hiero_vault_topic_id`**: High-throughput topic for technical integrity evidence (Pramana Vault).
+*   **`hiero_gov_topic_id`**: High-security topic for authorized ruleset hashes (Policy Governance).
 *   **`authorized_tools`**: Mapping of tool names to their cryptographic hashes and routing modes.
 
 ### Dimensions of Operation
@@ -107,13 +123,12 @@ The Citadel Gateway operates on a three-dimensional matrix to support diverse de
 
 ## How it Works (The Gateway)
 
-1.  **Bootstrap**: On startup, Citadel performs a **Hardware-Rooted Self-Attestation**. It extracts its silicon measurement (MRTD) and verifies it against the **Sovereign Anchor** on the Hiero ledger. If the measurements differ or the ledger is unreachable, the system enters **Terminal Refusal** and exits.
-2.  **Intercept**: The **Gateway** receives an MCP request.
-3.  **Admissibility Check**: The system validates the telemetry block. If $V_e$ decay < `--ve-threshold` (or the policy value), it returns an **Admissibility Failure** (-32001).
-3.  **Governance**: The system checks the **Sankalpa** against the authorized `policy.json`.
-4.  **Hardware Observation (Sakshi)**: If authorized, the `sakshi-core` layer **welds** the intent and telemetry into the Silicon Truth, triggering Intel TDX to generate a **Pramana**.
-5.  **Verification & Notarization**: The **Pramana** is verified against a `PramanaProvider` and notarized to a WORM ledger.
-6.  **Seal Issuance (Mudra)**: Upon success, the Sakshi issues a **Mudra** — a cryptographic seal notarizing the bound state of the intent, telemetry, and identity.
+1.  **Bootstrap**: On startup, Citadel generates a **long-lived session identity** and performs hardware-rooted self-attestation against the Sovereign Anchor on the Hiero ledger.
+2.  **Intercept**: The Gateway receives an MCP request containing **3rd-party signed telemetry**.
+3.  **Admissibility Check**: The system verifies the telemetry signature and validates the $V_e$ decay against the mandated threshold.
+4.  **Governance**: The system performs a near-instant cache lookup to verify the **Sankalpa** hash against the Governance Topic.
+5.  **Hardware Observation (Sakshi)**: The TEE immutably binds the intent, telemetry, and session certificate into a **Pramana**.
+6.  **Notarization & Handoff**: The Pramana is notarized to the Vault Topic. The resulting **Sequence Number** is returned in the **Mudra** seal, providing the client with precise ledger coordinates for O(1) verification.
 
 ## Verification & Validation
 
