@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use hedera::{AccountId, Client, PrivateKey, TopicId, TopicMessageSubmitTransaction};
 use sakshi_core::{Error, Pramana, PramanaProvider, PramanaRepository, EvidenceVerifier, SovereignEvent, EvidenceError};
 use std::collections::HashMap;
+use std::str::FromStr;
 use tracing::info;
 
 pub struct HieroProvider {
@@ -31,7 +32,14 @@ impl HieroProvider {
 
         if let (Ok(id), Ok(key)) = (std::env::var("HIERO_OPERATOR_ID"), std::env::var("HIERO_OPERATOR_KEY")) {
             let account_id = id.parse::<AccountId>().map_err(|e| format!("Invalid Account ID — {}", e))?;
-            let private_key = key.parse::<PrivateKey>().map_err(|e| format!("Invalid Private Key — {}", e))?;
+            
+            // Handle ECDSA / Ed25519 parsing with 0x prefix stripping
+            let clean_key = key.strip_prefix("0x").unwrap_or(&key);
+            let private_key = PrivateKey::from_str_ecdsa(clean_key)
+                .or_else(|_| PrivateKey::from_str(clean_key))
+                .map_err(|e| format!("Invalid Private Key (Attempted ECDSA and Ed25519) — {}", e))?;
+                
+            info!("HIERO_PROVIDER: Operator set for Account {}. Derived PublicKey: {}", account_id, private_key.public_key());
             client.set_operator(account_id, private_key);
         }
 
@@ -66,7 +74,7 @@ impl EvidenceVerifier for HieroProvider {
     async fn check_notarization(&self, mudra_seal: &[u8; 32]) -> Result<bool, EvidenceError> {
         let mirror_url = std::env::var("HIERO_MIRROR_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:5600".to_string());
         let base_url = if mirror_url.starts_with("http") { mirror_url } else { format!("http://{}", mirror_url) };
-        let url = format!("{}/api/v1/topics/{}/messages", base_url, self.topic_id);
+        let url = format!("{}/api/v1/topics/{}/messages?order=desc&limit=20", base_url, self.topic_id);
         
         info!("HIERO_VERIFIER: Checking notarization for Mudra {}...", hex::encode(&mudra_seal[..4]));
 
@@ -76,7 +84,7 @@ impl EvidenceVerifier for HieroProvider {
         // Simplified scan of recent messages (In production, use indexed search)
         if let Some(messages) = body.get("messages").and_then(|m| m.as_array()) {
             for msg in messages {
-                if let Some(contents_b64) = msg.get("contents").and_then(|c| c.as_str()) {
+                if let Some(contents_b64) = msg.get("message").and_then(|c| c.as_str()) {
                     if let Ok(decoded) = general_purpose::STANDARD.decode(contents_b64) {
                         match serde_json::from_slice::<SovereignEvent>(&decoded) {
                             Ok(event) => {
@@ -162,15 +170,15 @@ impl PramanaProvider for HieroProvider {
         let mirror_url = std::env::var("HIERO_MIRROR_NODE_ADDRESS").unwrap_or_else(|_| "127.0.0.1:5600".to_string());
         // Fix: Use http:// if not present
         let base_url = if mirror_url.starts_with("http") { mirror_url } else { format!("http://{}", mirror_url) };
-        let url = format!("{}/api/v1/topics/{}/messages", base_url, self.topic_id);
+        let url = format!("{}/api/v1/topics/{}/messages?order=desc&limit=20", base_url, self.topic_id);
         
         let resp = reqwest::get(&url).await.map_err(|_| Error::DeviceError)?;
         let body: serde_json::Value = resp.json().await.map_err(|_| Error::DeviceError)?;
 
         if let Some(messages) = body.get("messages").and_then(|m| m.as_array()) {
-            // Scan backwards for the latest anchor
-            for msg in messages.iter().rev() {
-                if let Some(contents_b64) = msg.get("contents").and_then(|c| c.as_str()) {
+            // Scan for the latest anchor
+            for msg in messages {
+                if let Some(contents_b64) = msg.get("message").and_then(|c| c.as_str()) {
                     if let Ok(decoded) = general_purpose::STANDARD.decode(contents_b64) {
                         if let Ok(event) = serde_json::from_slice::<SovereignEvent>(&decoded) {
                             if event.stage == sakshi_core::repository::LifecycleStage::SovereignAnchor {
@@ -230,7 +238,7 @@ mod tests {
         let body = serde_json::json!({
             "messages": [
                 {
-                    "contents": payload_b64,
+                    "message": payload_b64,
                     "consensus_timestamp": "123456789.000000001",
                     "topic_id": "0.0.123456"
                 }
@@ -277,7 +285,7 @@ mod tests {
         let body = serde_json::json!({
             "messages": [
                 {
-                    "contents": payload_b64,
+                    "message": payload_b64,
                     "consensus_timestamp": "123456789.000000002",
                     "topic_id": "0.0.123456"
                 }
@@ -332,7 +340,7 @@ mod tests {
         let body = serde_json::json!({
             "messages": [
                 {
-                    "contents": payload_b64,
+                    "message": payload_b64,
                     "consensus_timestamp": "123456789.000000003",
                     "topic_id": "0.0.123456"
                 }

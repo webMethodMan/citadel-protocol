@@ -26,9 +26,11 @@ pub struct SovereignEvent {
     #[n(6)] pub error_message: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EvidenceError {
+    #[error("Evidence submission timeout")]
     Timeout,
+    #[error("Transport error: {0}")]
     TransportError(String),
 }
 
