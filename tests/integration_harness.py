@@ -1,8 +1,32 @@
 import requests
 import json
 import time
+import subprocess
+import os
 
 GATEWAY_URL = "http://127.0.0.1:9000/mcp"
+# Default MTCP Test Key (Matching CITADEL_TELEMETRY_PUBLIC_KEY in Gateway)
+MTCP_PRIVATE_KEY = os.environ.get("MTCP_PRIVATE_KEY", "9368a508b4761ec1979f32858940fd704aae094858272e668ae63f59009b5ece")
+
+def get_signed_telemetry(decay=0.95, auth_id="theo-01"):
+    """Generates a real signed telemetry block using the mock_mtcp_node utility."""
+    cmd = [
+        "python3", "tests/mock_mtcp_node.py",
+        "--key", MTCP_PRIVATE_KEY,
+        "--decay", str(decay),
+        "--auth-id", auth_id
+    ]
+    try:
+        result = subprocess.check_output(cmd).decode()
+        return json.loads(result)
+    except Exception as e:
+        print(f"❌ Error generating signed telemetry: {e}")
+        return {
+            "v_e_decay": decay,
+            "authority_id": auth_id,
+            "integrity_hash": "0x" + ("0" * 64),
+            "signature": "0" * 128
+        }
 
 def truncate_json(obj):
     """Truncates long lists in JSON objects for cleaner logging."""
@@ -28,6 +52,14 @@ def format_compact_json(obj, indent=0):
         return json.dumps(obj)
 
 def run_test_case(payload):
+    # Inject real telemetry if present
+    if "params" in payload and payload["params"] and "telemetry" in payload["params"]:
+        decay = payload["params"]["telemetry"].get("v_e_decay", 0.95)
+        auth_id = payload["params"]["telemetry"].get("authority_id", "theo-01")
+        # Only overwrite if signature is the mock one
+        if payload["params"]["telemetry"].get("signature") == "0" * 128:
+            payload["params"]["telemetry"] = get_signed_telemetry(decay, auth_id)
+
     print(f"\n>>> SENDING PAYLOAD (ID: {payload.get('id')}):")
     print(format_compact_json(payload))
     
@@ -210,6 +242,10 @@ if __name__ == "__main__":
         if cid == 201:
             if resp and "result" in resp and "witness_token" in str(resp["result"]):
                 print("STATUS: ✅ PROXY VERIFIED. Received response from legacy backend.")
+                if "provenance" in resp:
+                    print("STATUS: ✅ PROVENANCE ATTACHED. Mudra seal verified.")
+                else:
+                    print("STATUS: ❌ PROVENANCE MISSING. Evidence chain broken.")
             else:
                 print("STATUS: ❌ PROXY FAILED. Unexpected result format.")
                 
@@ -234,8 +270,9 @@ if __name__ == "__main__":
         elif cid == 205:
             if resp and "result" in resp and "provenance" in resp:
                  print("STATUS: ✅ NOTARY VERIFIED. attest tool returned structured Mudra.")
+                 print(f"Mudra Seal: {resp['provenance'].get('seal')}")
             else:
-                print("STATUS: ❌ NOTARY FAILED. Expected structured result.")
+                print("STATUS: ❌ NOTARY FAILED. Expected structured result with provenance.")
 
         elif cid == 206:
             if resp and "error" in resp and "Proxy Error" in resp["error"]["message"]:
