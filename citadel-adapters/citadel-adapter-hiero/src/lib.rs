@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use hedera::{AccountId, Client, PrivateKey, TopicId, TopicMessageSubmitTransaction};
-use sakshi_core::{Error, Pramana, PramanaProvider, PramanaRepository, EvidenceVerifier, SovereignEvent, EvidenceError};
+use sakshi_core::{Error, Pramana, PramanaProvider, PramanaRepository, EvidenceVerifier, SovereignEvent, EvidenceError, SecretStore};
 use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::info;
@@ -11,7 +11,11 @@ pub struct HieroProvider {
 }
 
 impl HieroProvider {
-    pub async fn new(topic_id_str: &str) -> Result<Self, String> {
+    pub async fn new(topic_id_str: &str, store: Option<&dyn SecretStore>) -> Result<Self, String> {
+        Self::new_with_prefix(topic_id_str, store, "hiero-operator").await
+    }
+
+    pub async fn new_with_prefix(topic_id_str: &str, store: Option<&dyn SecretStore>, prefix: &str) -> Result<Self, String> {
         let client = match std::env::var("HIERO_NETWORK").unwrap_or_default().as_str() {
             "mainnet" => Client::for_mainnet(),
             "testnet" => Client::for_testnet(),
@@ -30,7 +34,17 @@ impl HieroProvider {
             _ => Client::for_testnet(),
         };
 
-        if let (Ok(id), Ok(key)) = (std::env::var("HIERO_OPERATOR_ID"), std::env::var("HIERO_OPERATOR_KEY")) {
+        let mut operator_id = std::env::var("HIERO_OPERATOR_ID").ok();
+        let mut operator_key = std::env::var("HIERO_OPERATOR_KEY").ok();
+
+        if let Some(s) = store {
+            let id_key = format!("{}-id", prefix);
+            let key_key = format!("{}-key", prefix);
+            if let Ok(id) = s.get_secret(&id_key).await { operator_id = Some(id); }
+            if let Ok(key) = s.get_secret(&key_key).await { operator_key = Some(key); }
+        }
+
+        if let (Some(id), Some(key)) = (operator_id, operator_key) {
             let account_id = id.parse::<AccountId>().map_err(|e| format!("Invalid Account ID — {}", e))?;
             
             // Handle ECDSA / Ed25519 parsing with 0x prefix stripping
@@ -39,7 +53,7 @@ impl HieroProvider {
                 .or_else(|_| PrivateKey::from_str(clean_key))
                 .map_err(|e| format!("Invalid Private Key (Attempted ECDSA and Ed25519) — {}", e))?;
                 
-            info!("HIERO_PROVIDER: Operator set for Account {}. Derived PublicKey: {}", account_id, private_key.public_key());
+            info!("HIERO_PROVIDER: Identity set for Account {}. Derived PublicKey: {}", account_id, private_key.public_key());
             client.set_operator(account_id, private_key);
         }
 
@@ -245,7 +259,7 @@ mod tests {
             ]
         });
 
-        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages")
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages?order=desc&limit=20")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(serde_json::to_string(&body).unwrap())
@@ -292,7 +306,7 @@ mod tests {
             ]
         });
 
-        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages")
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages?order=desc&limit=20")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(serde_json::to_string(&body).unwrap())
@@ -347,7 +361,7 @@ mod tests {
             ]
         });
 
-        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages")
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages?order=desc&limit=20")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(serde_json::to_string(&body).unwrap())

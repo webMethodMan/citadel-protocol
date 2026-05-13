@@ -8,10 +8,11 @@ use sakshi_core::{
     SankalpaHasher, Sha3_256Hasher, 
     IntentTranslator, DeterministicAirlock, AirlockPolicyEngine,
     PramanaProvider, TelemetryState, PolicyComparator,
-    PramanaRepository, SovereignEvent, EvidenceError
+    PramanaRepository, SovereignEvent, EvidenceError, SecretStore
 };
 
 use citadel_a2a_connector::{A2AConnector};
+use citadel_secrets::KeyringSecretStore;
 #[cfg(feature = "tdx")]
 use sakshi_tdx::{TdxProvider};
 
@@ -26,7 +27,7 @@ use crate::transport::sse::McpSseTransport;
 use crate::transport::grpc::GrpcTransport;
 use crate::lang::{CitadelLanguagePack, en_us::EnglishLanguagePack};
 use clap::{Parser, ValueEnum};
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 pub struct ThresholdComparator;
 impl PolicyComparator for ThresholdComparator {
@@ -75,7 +76,7 @@ impl ProviderFactory {
         }
     }
 
-    pub async fn create_pramana_provider(config: &CitadelConfig, silicon: Box<dyn SiliconProvider>) -> Box<dyn PramanaProvider> {
+    pub async fn create_pramana_provider(config: &CitadelConfig, silicon: Box<dyn SiliconProvider>, store: &dyn SecretStore) -> Box<dyn PramanaProvider> {
         if let Some(ref peer_url) = config.a2a_url {
             return Box::new(A2AConnector {
                 peer_url: peer_url.clone(),
@@ -86,10 +87,11 @@ impl ProviderFactory {
 
         #[cfg(feature = "hiero")] {
             let topic_id = config.hiero_topic_id.as_deref().unwrap_or("0.0.123456").to_string();
-            return Box::new(citadel_adapter_hiero::HieroProvider::new(&topic_id).await.expect("Failed to create HieroProvider"));
+            return Box::new(citadel_adapter_hiero::HieroProvider::new(&topic_id, Some(store)).await.expect("Failed to create HieroProvider"));
         }
 
         #[cfg(not(feature = "hiero"))] {
+            let _ = store;
             struct MockPramanaProvider;
             #[async_trait::async_trait]
             impl PramanaProvider for MockPramanaProvider {
@@ -164,20 +166,23 @@ async fn main() -> io::Result<()> {
     dotenvy::dotenv().ok();
     let args = Args::parse();
     
-    // Attempt to load consolidated config from citadel.toml first, then policy.json
+    // 1. Initialize Secret Store
+    let secret_store = KeyringSecretStore::new("citadel-protocol");
+
+    // 2. Load configuration
     let config = JsonFilePolicy::load_from_disk("citadel.toml")
         .or_else(|_| JsonFilePolicy::load_from_disk("policy.json"))
         .expect("Failed to load Citadel configuration from citadel.toml or policy.json")
         .config;
 
     let silicon = ProviderFactory::create_silicon_provider(&config);
-    let connector = ProviderFactory::create_pramana_provider(&config, ProviderFactory::create_silicon_provider(&config)).await;
+    let connector = ProviderFactory::create_pramana_provider(&config, ProviderFactory::create_silicon_provider(&config), &secret_store).await;
     let token = tokio_util::sync::CancellationToken::new();
     let lang_pack: Arc<dyn CitadelLanguagePack> = Arc::new(EnglishLanguagePack);
 
     let evidence_repo: Arc<dyn PramanaRepository> = if let Some(topic_id) = config.hiero_topic_id.as_ref() {
         #[cfg(feature = "hiero")] {
-            Arc::new(citadel_adapter_hiero::HieroProvider::new(topic_id).await.expect("Failed to init Hiero repo"))
+            Arc::new(citadel_adapter_hiero::HieroProvider::new(topic_id, Some(&secret_store)).await.expect("Failed to init Hiero repo"))
         }
         #[cfg(not(feature = "hiero"))] {
             let _ = topic_id;
@@ -203,16 +208,34 @@ async fn main() -> io::Result<()> {
         .or(config.ve_threshold)
         .unwrap_or(0.90);
 
+    // 3. Load Telemetry Key from SecretStore or Environment
     let mut telemetry_public_key = [0u8; 32];
-    if let Ok(pk_hex) = std::env::var("CITADEL_TELEMETRY_PUBLIC_KEY") {
+    let mut telemetry_loaded = false;
+    
+    if let Ok(pk_hex) = secret_store.get_secret("telemetry-public-key").await {
         if let Ok(pk_bytes) = hex::decode(pk_hex.strip_prefix("0x").unwrap_or(&pk_hex)) {
             if pk_bytes.len() == 32 { 
                 telemetry_public_key.copy_from_slice(&pk_bytes); 
-                info!("IDENTITY: Telemetry verification key loaded (CITADEL_TELEMETRY_PUBLIC_KEY)");
+                info!("IDENTITY: Telemetry verification key loaded from Secure Keyring");
+                telemetry_loaded = true;
             }
         }
-    } else {
-        warn!("IDENTITY: No CITADEL_TELEMETRY_PUBLIC_KEY found. Telemetry verification will fail in production.");
+    }
+
+    if !telemetry_loaded {
+        if let Ok(pk_hex) = std::env::var("CITADEL_TELEMETRY_PUBLIC_KEY") {
+            if let Ok(pk_bytes) = hex::decode(pk_hex.strip_prefix("0x").unwrap_or(&pk_hex)) {
+                if pk_bytes.len() == 32 { 
+                    telemetry_public_key.copy_from_slice(&pk_bytes); 
+                    info!("IDENTITY: Telemetry verification key loaded from Environment (CITADEL_TELEMETRY_PUBLIC_KEY)");
+                    telemetry_loaded = true;
+                }
+            }
+        }
+    }
+
+    if !telemetry_loaded {
+        warn!("IDENTITY: No telemetry verification key found. Telemetry verification will fail in production.");
     }
 
     let state = Arc::new(AppState {

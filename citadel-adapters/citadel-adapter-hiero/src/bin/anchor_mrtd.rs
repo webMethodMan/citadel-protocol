@@ -1,5 +1,6 @@
 use citadel_adapter_hiero::HieroProvider;
 use sakshi_core::repository::{SovereignEvent, LifecycleStage, PramanaRepository};
+use citadel_secrets::KeyringSecretStore;
 use clap::Parser;
 use tracing::info;
 
@@ -24,7 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let topic_id = std::env::var("HIERO_TOPIC_ID")
         .expect("HIERO_TOPIC_ID must be set in .env or environment");
 
-    // 1. Validate and decode MRTD
+    // 1. Initialize SecretStore
+    let secret_store = KeyringSecretStore::new("citadel-protocol");
+
+    // 2. Validate and decode MRTD
     let clean_mrtd = args.mrtd.strip_prefix("0x").unwrap_or(&args.mrtd);
     let mrtd_bytes = hex::decode(clean_mrtd)
         .map_err(|e| format!("Invalid MRTD hex: {}", e))?;
@@ -36,9 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🚀 Initializing Sovereign Anchor for Topic {}...", topic_id);
     info!("Golden MRTD: {}", args.mrtd);
 
-    let provider = HieroProvider::new(&topic_id).await?;
+    let provider = HieroProvider::new_with_prefix(&topic_id, Some(&secret_store), "hiero-governance").await?;
 
-    // 2. Construct the SovereignAnchor event
+    // 3. Construct the SovereignAnchor event
     let event = SovereignEvent {
         stage: LifecycleStage::SovereignAnchor,
         sankalpa_hash: [0u8; 32], // Anchor events are identity-centric, not intent-centric
@@ -49,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         error_message: None,
     };
 
-    // 3. Notarize to HCS
+    // 4. Notarize to HCS
     info!("📥 Submitting Sovereign Anchor to Hedera Consensus Service...");
     provider.append_evidence(event).await?;
     
