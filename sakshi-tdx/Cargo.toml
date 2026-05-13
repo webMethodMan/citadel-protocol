@@ -9,3 +9,8 @@ std = ["sakshi-core/std"]
 [dependencies]
 sakshi-core = { workspace = true, default-features = false }
 nix = { version = "0.29", features = ["ioctl"] }
+hex = { workspace = true }
+
+[[bin]]
+name = "get_real_mrtd"
+path = "src/bin/get_real_mrtd.rs"
