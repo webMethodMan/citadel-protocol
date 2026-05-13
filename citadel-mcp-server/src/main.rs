@@ -12,7 +12,8 @@ use sakshi_core::{
 };
 
 use citadel_a2a_connector::{A2AConnector};
-use citadel_secrets::KeyringSecretStore;
+use citadel_secrets::LocalVaultSecretStore;
+use std::path::PathBuf; // <-- Added this import
 #[cfg(feature = "tdx")]
 use sakshi_tdx::{TdxProvider};
 
@@ -167,7 +168,7 @@ async fn main() -> io::Result<()> {
     let args = Args::parse();
     
     // 1. Initialize Secret Store
-    let secret_store = KeyringSecretStore::new("citadel-protocol");
+    let secret_store = LocalVaultSecretStore::new(PathBuf::from("./vault.json"));
 
     // 2. Load configuration
     let config = JsonFilePolicy::load_from_disk("citadel.toml")

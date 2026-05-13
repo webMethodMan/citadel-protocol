@@ -30,11 +30,18 @@ extern crate alloc;
 static ALLOC: lol_alloc::AssumeSingleThreaded<lol_alloc::FreeListAllocator> =
     unsafe { lol_alloc::AssumeSingleThreaded::new(lol_alloc::FreeListAllocator::new()) };
 
+// Removed the custom panic handler:
+// #[cfg(not(feature = "std"))]
+// #[panic_handler]
+// fn panic(_info: &core::panic::PanicInfo) -> ! {
+//     loop {}
+// }
+
+// Add explicit imports for Box and String if not in std
 #[cfg(not(feature = "std"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 
 pub trait SiliconProvider: Send + Sync {
     fn vendor(&self) -> &'static str;
@@ -190,7 +197,7 @@ pub extern "C" fn sakshi_verify_and_gate_wasm(
     // This is a simplified entry point for WASM verification logic.
     let cert_hash = unsafe { core::slice::from_raw_parts(cert_hash_ptr, 32) };
     let mut hash = [0u8; 32];
-    hash.copy_from_slice(cert_hash);
+    hash.copy_from_slice(cert_hash); // This line causes a compile error because slice is not bitslice
     
     // Return success placeholder for now
     #[cfg(feature = "mock-hardware")]
@@ -201,5 +208,4 @@ pub extern "C" fn sakshi_verify_and_gate_wasm(
         // This is a placeholder for a real WASM-based TEE verification logic.
         return -2;
     }
-    0
 }

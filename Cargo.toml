@@ -9,6 +9,7 @@ sakshi-tdx = { version = "0.1.0", path = "sakshi-tdx" }
 citadel-verifier = { version = "0.1.0", path = "citadel-verifier" }
 citadel-a2a-connector = { version = "0.1.0", path = "citadel-a2a-connector" }
 citadel-adapter-hiero = { version = "0.1.0", path = "citadel-adapters/citadel-adapter-hiero" }
+citadel-secrets = { version = "0.1.0", path = "citadel-secrets" }
 
 # Common Libraries
 async-trait = "0.1.89"

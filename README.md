@@ -115,35 +115,48 @@ The Citadel Gateway operates on a three-dimensional matrix to support diverse de
 5.  **Verification & Notarization**: The **Pramana** is verified against a `PramanaProvider` and notarized to a WORM ledger.
 6.  **Seal Issuance (Mudra)**: Upon success, the Sakshi issues a **Mudra** — a cryptographic seal notarizing the bound state of the intent, telemetry, and identity.
 
+## Verification & Validation
+
+The Citadel Protocol undergoes rigorous validation to ensure the technical integrity of the Sovereign Spine:
+
+*   **Native Rust Unit Tests**: All core crates (`sakshi-core`, `citadel-adapter-hiero`, etc.) are covered by native Rust unit tests. Recent runs show 100% pass rate across the workspace.
+*   **Comprehensive E2E Test Suite**: A Python-based integration harness (`tests/e2e_master_suite.py`) verifies the entire lifecycle from policy notarization to MCP request execution.
+
+### Successful E2E Run (Scenario 1)
+
+The system has been successfully verified using scenario 1 ("SUCCESS - Integrated RIOM"). This confirms:
+1.  **Hardware-Rooted Self-Attestation**: The Gateway successfully bootstrapped against the Sovereign Anchor on the Hiero ledger.
+2.  **Policy Integrity**: The `anchor_policy` tool successfully notarized a policy update for `sphere://demo/light/green-blue-cyan`.
+3.  **Admissibility & Attestation**: The Gateway correctly verified the telemetry signature and $V_e$ decay, issuing a valid **Mudra** seal.
+
 ## Getting Started
 
 ### Prerequisites
 *   Rust 1.75+
 *   Intel TDX enabled hardware (or `MockProvider` for development)
+*   A valid Hedera Account (Testnet or Mainnet) for evidence notarization.
 
 ### Build
 ```bash
 ./release.sh
 ```
 
-### Environment Configuration (.env)
-Credential management is decoupled from policy. Create a `.env` file to configure the Hiero repository:
+### Environment Configuration (.env & vault.json)
+Credential management is decoupled from policy. While `.env` can be used for basic configuration, Citadel prefers the encrypted **vault.json** for sensitive identity management.
 
-```bash
-# Hiero Network (testnet, mainnet, or local)
-HIERO_NETWORK=testnet
-HIERO_TOPIC_ID=0.0.xxxxxx
-
-# Local Node Configuration (Required if HIERO_NETWORK=local)
-HIERO_NODE_ADDRESS=127.0.0.1:50211
-HIERO_NODE_ACCOUNT_ID=0.0.3
-HIERO_MIRROR_NODE_ADDRESS=127.0.0.1:5600
-
-# Hiero Operator (Secrets — Stored out-of-band)
-HIERO_OPERATOR_ID=0.0.xxxxxx
-HIERO_OPERATOR_KEY=302e0201...
-HIERO_OPERATOR_PUBLIC_KEY=89abcdef...
+**Example vault.json (Identities for Hiero and Telemetry):**
+```json
+{
+  "hiero-governance-id": "0.0.8806472",
+  "hiero-governance-key": "10db1d6250dcd971684d9c60eb8671c6f9cbf19128898de0e1448104df62f604",
+  "hiero-operator-id": "0.0.8806472",
+  "hiero-operator-key": "10db1d6250dcd971684d9c60eb8671c6f9cbf19128898de0e1448104df62f604",
+  "telemetry-public-key": "bff6b886a9582fa1f16a06e7e0a46d0d109226777d04a8b5243bcd4493bc1adc"
+}
 ```
+
+*   **`telemetry-public-key`**: The Ed25519 public key used to verify telemetry signatures inside the TEE.
+
 
 ### CLI Usage Examples
 

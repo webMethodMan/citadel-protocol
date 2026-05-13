@@ -1,6 +1,7 @@
 use citadel_adapter_hiero::HieroProvider;
 use sakshi_core::repository::{SovereignEvent, LifecycleStage, PramanaRepository};
-use citadel_secrets::KeyringSecretStore;
+use citadel_secrets::LocalVaultSecretStore; // Changed from KeyringSecretStore
+use std::path::PathBuf; // Added for PathBuf
 use clap::Parser;
 use tracing::info;
 
@@ -44,7 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🚀 Notarizing Policy Update for {} on Topic {}...", args.tool_id, topic_id);
     info!("Policy Hash: {}", args.hash);
 
-    let secret_store = KeyringSecretStore::new("citadel-protocol");
+    // Updated secret store initialization
+    let secret_store = LocalVaultSecretStore::new(PathBuf::from("./vault.json")); 
+    
     let provider = HieroProvider::new_with_prefix(&topic_id, Some(&secret_store), "hiero-governance").await?;
 
     // 2. Construct the PolicyUpdate event

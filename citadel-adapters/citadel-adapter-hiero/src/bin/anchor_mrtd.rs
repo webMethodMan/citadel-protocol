@@ -1,6 +1,7 @@
 use citadel_adapter_hiero::HieroProvider;
 use sakshi_core::repository::{SovereignEvent, LifecycleStage, PramanaRepository};
-use citadel_secrets::KeyringSecretStore;
+use citadel_secrets::LocalVaultSecretStore; // Changed from KeyringSecretStore
+use std::path::PathBuf; // Added for PathBuf
 use clap::Parser;
 use tracing::info;
 
@@ -26,8 +27,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("HIERO_TOPIC_ID must be set in .env or environment");
 
     // 1. Initialize SecretStore
-    let secret_store = KeyringSecretStore::new("citadel-protocol");
-
+    // Updated secret store initialization
+    let secret_store = LocalVaultSecretStore::new(PathBuf::from("./vault.json")); 
+    
     // 2. Validate and decode MRTD
     let clean_mrtd = args.mrtd.strip_prefix("0x").unwrap_or(&args.mrtd);
     let mrtd_bytes = hex::decode(clean_mrtd)
@@ -57,7 +59,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("📥 Submitting Sovereign Anchor to Hedera Consensus Service...");
     provider.append_evidence(event).await?;
     
-    info!("✅ SUCCESS: Technical Integrity anchored. Citadel Gateways can now bootstrap using this topic.");
+    // Corrected success message to use 'mrtd' instead of 'tool_id'
+    info!("✅ SUCCESS: MRTD anchored for {}...", args.mrtd); 
 
     Ok(())
 }

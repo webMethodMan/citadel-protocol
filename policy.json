@@ -23,6 +23,14 @@
       "hash": "0000000000000000000000000000000000000000000000000000000000000000",
       "mode": "proxy",
       "target_url": "http://127.0.0.1:9999/broken"
+    },
+    "sphere://demo/light/green-blue-cyan": {
+      "hash": "afdbddbb6ea91a3a6fa439d073d400a20fb6fd70fc0bf9b8b98c61feee560b6c",
+      "mode": "notary"
+    },
+    "sphere://demo/cmyk/white-transform": {
+      "hash": "afdbddbb6ea91a3a6fa439d073d400a20fb6fd70fc0bf9b8b98c61feee560b6c",
+      "mode": "notary"
     }
   },
   "a2a_url": "127.0.0.1:50051",

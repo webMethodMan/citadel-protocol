@@ -45,7 +45,8 @@ impl HieroProvider {
         }
 
         if let (Some(id), Some(key)) = (operator_id, operator_key) {
-            let account_id = id.parse::<AccountId>().map_err(|e| format!("Invalid Account ID — {}", e))?;
+            let account_id = AccountId::from_str(&id)
+                .map_err(|e| format!("Invalid Account ID — {}", e))?;
             
             // Handle ECDSA / Ed25519 parsing with 0x prefix stripping
             let clean_key = key.strip_prefix("0x").unwrap_or(&key);
@@ -360,17 +361,15 @@ mod tests {
             ledger_hash: None,
         };
 
-        use sakshi_core::Sha3_256Hasher;
-        use sakshi_core::SankalpaHasher;
-        let hasher = Sha3_256Hasher;
-        let seal = hasher.hash(&[&report]);
+        let mut expected_hash = [0u8; 32];
+        expected_hash.copy_from_slice(&report[..32]);
 
         let event = SovereignEvent {
-            stage: LifecycleStage::SankalpaIntent,
-            sankalpa_hash: seal,
+            stage: LifecycleStage::PolicyUpdate,
+            sankalpa_hash: expected_hash,
             ve_decay_rate: 1.0,
             spiffe_id: "test".to_string(),
-            tdx_quote: Some(report),
+            tdx_quote: Some(b"test_tool".to_vec()),
             response_hash: None,
             error_message: None,
         };
@@ -387,7 +386,7 @@ mod tests {
             ]
         });
 
-        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages?order=desc&limit=20")
+        let _m = server.mock("GET", "/api/v1/topics/0.0.123456/messages?order=desc&limit=50")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(serde_json::to_string(&body).unwrap())
@@ -398,7 +397,7 @@ mod tests {
             topic_id: "0.0.123456".parse().unwrap(),
         };
 
-        let res = provider.verify_pramana(&pramana).await;
+        let res = provider.verify_pramana("test_tool", &pramana).await;
         assert!(res.is_ok());
     }
 }

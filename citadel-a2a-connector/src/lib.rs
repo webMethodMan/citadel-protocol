@@ -71,7 +71,7 @@ pub struct A2AConnector {
 
 #[async_trait]
 impl PramanaProvider for A2AConnector {
-    async fn verify_pramana(&self, _pramana: &Pramana) -> Result<(), Error> {
+    async fn verify_pramana(&self, _session_id: &str, _pramana: &Pramana) -> Result<(), Error> {
         // In A2A mode, notarization is checked by the remote peer during the handshake.
         Ok(())
     }
