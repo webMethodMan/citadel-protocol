@@ -204,10 +204,15 @@ async fn main() -> io::Result<()> {
         .unwrap_or(0.90);
 
     let mut telemetry_public_key = [0u8; 32];
-    if let Ok(pk_hex) = std::env::var("HIERO_OPERATOR_PUBLIC_KEY") {
-        if let Ok(pk_bytes) = hex::decode(pk_hex) {
-            if pk_bytes.len() == 32 { telemetry_public_key.copy_from_slice(&pk_bytes); }
+    if let Ok(pk_hex) = std::env::var("CITADEL_TELEMETRY_PUBLIC_KEY") {
+        if let Ok(pk_bytes) = hex::decode(pk_hex.strip_prefix("0x").unwrap_or(&pk_hex)) {
+            if pk_bytes.len() == 32 { 
+                telemetry_public_key.copy_from_slice(&pk_bytes); 
+                info!("IDENTITY: Telemetry verification key loaded (CITADEL_TELEMETRY_PUBLIC_KEY)");
+            }
         }
+    } else {
+        warn!("IDENTITY: No CITADEL_TELEMETRY_PUBLIC_KEY found. Telemetry verification will fail in production.");
     }
 
     let state = Arc::new(AppState {
