@@ -432,7 +432,7 @@ pub async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> Mc
             };
 
             let repo = state.evidence_repo.clone();
-            let append_future = tokio::time::timeout(std::time::Duration::from_millis(50), async move {
+            let append_future = tokio::time::timeout(std::time::Duration::from_millis(5000), async move {
                 repo.append_evidence(event).await
             });
 
@@ -447,11 +447,11 @@ pub async fn process_request_matrix(state: Arc<AppState>, req: McpRequest) -> Mc
                     warn!("{}", state.lang_pack.notarization_fallback_quarantine());
                 },
                 Err(_) => {
-                    error!("{}", state.lang_pack.notarization_timeout(50));
+                    error!("{}", state.lang_pack.notarization_timeout(5000));
                     // Strict fail-closed policy
                     return McpResponse {
                         jsonrpc: "2.0".to_string(), result: None, provenance: None,
-                        error: Some(McpError { code: -32003, message: state.lang_pack.notarization_timeout(50) }), id: req_id,
+                        error: Some(McpError { code: -32003, message: state.lang_pack.notarization_timeout(5000) }), id: req_id,
                     };
                 }
             }
