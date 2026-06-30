@@ -3,27 +3,61 @@
 In an era of autonomous agents, the Citadel Protocol acts as a deterministic gatekeeper — a Silicon Airlock for AI agents to interact with legacy systems only after intent has been cryptographically notarized by a Trusted Execution Environment (TEE).
 
 ## Executive Vision: The Sovereign Spine
-
 The Citadel Protocol resolves the inherent instability of "software hope" (probabilistic, non-deterministic AI) by enforcing a deterministic governance framework anchored in hardware. By fusing ledger-based proof of reasoning with hardware roots of trust, Citadel provides a forensic-grade audit trail and an instantaneous admissibility gate for agentic workloads.
 
 ---
 
-## Getting Started (Quick Start)
+## Quick Start
 Developers can simulate the environment without requiring specialized hardware by utilizing the `MockProvider`.
 
-1. **Prerequisites**
-   * Rust 1.75+
-   * Intel TDX enabled hardware (or `MockProvider` for development)
-   * A valid Hedera Account (Testnet or Mainnet) for evidence notarization.
+### Prerequisites
+* Rust 1.75+
+* Intel TDX enabled hardware (or `MockProvider` for development)
+* A valid Hedera Account (Testnet or Mainnet) for evidence notarization.
 
-2. **Build**
-   ```bash
-   ./release.sh
+### Build & Run
+```bash
+# Build
+./release.sh
 
-3. **run**
-   ```bash
-   echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-stdio --lifecycle ephemeral --ve-threshold 0.95
+# Run (Ephemeral Notary)
+echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-stdio --lifecycle ephemeral --ve-threshold 0.95
+```
 
+### Environment Configuration (.env & vault.json)
+
+Credential management is decoupled from policy. While `.env` can be used for basic configuration, Citadel prefers the encrypted **vault.json** for sensitive identity management.
+
+**Example vault.json (Identities for Hiero and Telemetry):**
+
+```json
+{
+  "hiero-governance-id": "0.0.00000000",
+  "hiero-governance-key": "xxxxx71684d9c60eb28898de0e1448104df62f604867110db1d6250c6f9cbf191",
+  "hiero-operator-id": "0.0.00000000",
+  "hiero-operator-key": "xxxxx71684d9c60eb28898de0e1448104df62f604867110db1d6250c6f9cbf191",
+  "telemetry-public-key": "yyyybff6b88616a06e7ebff6b886226bff6b88604a8bbff6b886cdadcbff6b886"
+}
+
+```
+
+* **`telemetry-public-key`**: The Ed25519 public key used to verify telemetry signatures inside the TEE.
+
+### CLI Usage Examples
+
+**CI Notary with specific Admissibility threshold override**:
+
+```bash
+echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-stdio --lifecycle ephemeral --ve-threshold 0.95
+
+```
+
+**Production Proxy (Persistent SSE Gateway using policy threshold)**:
+
+```bash
+./target/debug/citadel-mcp-server --logic proxy --transport mcp-sse --lifecycle persistent --port 9000
+
+```
 ## Architectural Foundations (The Dual-Topic Model)
 
 To achieve sub-10ms verification latency on public ledgers without a local database, Citadel employs a **Dual-Topic Domain Boundary** architecture on the Hedera Consensus Service (HCS):
@@ -75,24 +109,6 @@ The Citadel Protocol is structured into specialized crates and modules to ensure
 * **`citadel-verifier`**: A new specialized crate for TEE-signed Pramana verification and identity extraction.
 * **`citadel-mcp-server`**: The Gateway implementation, now optimized for high-frequency interactions. It orchestrates logic using long-lived session identities (`src/main.rs`), utilizes a unified configuration supporting both Hiero topics (`src/policy.rs`), and manages decoupled JSON-RPC protocol structures (`src/mcp.rs`).
 * **`citadel-a2a-connector`**: The Peer-to-Peer (Agent-to-Agent) gRPC bridge for decentralized attestation.
-
-## Core Architectural Improvements (v0.1.0)
-
-To ensure the technical integrity and maintainability of the Sovereign Spine, the following structural improvements have been implemented:
-
-* **Centralized Dependency Management**: All common dependencies (Tokio, Serde, Tracing, etc.) are managed at the workspace root via `[workspace.dependencies]`, ensuring version consistency across all crates.
-* **Strict Type Validation**: Introduced a specialized `Mrtd` type with built-in hex validation and length enforcement to prevent malformed measurements from reaching the attestation layer.
-* **Unified Configuration Layer**: Merged the fragmented `citadel.toml` and `policy.json` into a single, cohesive `CitadelConfig` schema. The system now supports both TOML and JSON formats for environment and policy definitions.
-* **Feature-Gated Mock Logic**: All non-production mock hardware logic is strictly gated behind the `mock-hardware` feature flag, ensuring that hardcoded test measurements are definitively stripped from production builds.
-* **Native Rust Testing**: Complemented the Python integration harness with native Rust unit tests in `sakshi-core` to verify the core `verify_and_gate` logic.
-
-## Observability & Technical Integrity
-
-To support the auditing requirements of a "Silicon Airlock," Citadel employs a structured observability stack:
-
-* **Structured Logging**: Powered by the `tracing` crate. All security-critical events (Attestation results, Policy refusals, WORM welds) are emitted as structured logs.
-* **Log Level Control**: Fine-grained visibility across the gateway and A2A connector using standard log levels (`info`, `warn`, `error`).
-* **Deterministic Failure Analysis**: Detailed error context for attestation failures, including intent hashes and hardware quote verification errors.
 
 ## The Sovereign Spine — Configuration Matrix
 
@@ -153,63 +169,6 @@ The system has been successfully verified using scenario 1 ("SUCCESS - Integrate
 1. **Hardware-Rooted Self-Attestation**: The Gateway successfully bootstrapped against the Sovereign Anchor on the Hiero ledger.
 2. **Policy Integrity**: The `anchor_policy` tool successfully notarized a policy update for `sphere://demo/light/green-blue-cyan`.
 3. **Admissibility & Attestation**: The Gateway correctly verified the telemetry signature and $V_e$ decay, issuing a valid **Mudra** seal.
-
-## Getting Started
-
-### Prerequisites
-
-* Rust 1.75+
-* Intel TDX enabled hardware (or `MockProvider` for development)
-* A valid Hedera Account (Testnet or Mainnet) for evidence notarization.
-
-### Build
-
-```bash
-./release.sh
-
-```
-
-### Environment Configuration (.env & vault.json)
-
-Credential management is decoupled from policy. While `.env` can be used for basic configuration, Citadel prefers the encrypted **vault.json** for sensitive identity management.
-
-**Example vault.json (Identities for Hiero and Telemetry):**
-
-```json
-{
-  "hiero-governance-id": "0.0.00000000",
-  "hiero-governance-key": "xxxxx71684d9c60eb28898de0e1448104df62f604867110db1d6250c6f9cbf191",
-  "hiero-operator-id": "0.0.00000000",
-  "hiero-operator-key": "xxxxx71684d9c60eb28898de0e1448104df62f604867110db1d6250c6f9cbf191",
-  "telemetry-public-key": "yyyybff6b88616a06e7ebff6b886226bff6b88604a8bbff6b886cdadcbff6b886"
-}
-
-```
-
-* **`telemetry-public-key`**: The Ed25519 public key used to verify telemetry signatures inside the TEE.
-
-### CLI Usage Examples
-
-**CI Notary with specific Admissibility threshold override**:
-
-```bash
-echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-stdio --lifecycle ephemeral --ve-threshold 0.95
-
-```
-
-**Production Proxy (Persistent SSE Gateway using policy threshold)**:
-
-```bash
-./target/debug/citadel-mcp-server --logic proxy --transport mcp-sse --lifecycle persistent --port 9000
-
-```
-
-## Milestone v0.1.0 Changes
-
-* **Capability-Based Admissibility Gate**: Transitioned to a formal governance framework enforcing $V_e$ decay thresholds.
-* **Structural Telemetry Binding**: Telemetry state is now cryptographically bound to the hardware-notarized intent.
-* **Deterministic Refusal**: Hardened refusal logic for unstable or unauthorized AI intents.
-* **Sovereign Spine Primitives**: Full alignment with "A Forensic Lexicon for the Agentic Era."
 
 ## Security
 
