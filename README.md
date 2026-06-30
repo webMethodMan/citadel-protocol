@@ -159,7 +159,7 @@ Credential management is decoupled from policy. While `.env` can be used for bas
   "hiero-governance-key": "xxxxx71684d9c60eb28898de0e1448104df62f604867110db1d6250c6f9cbf191",
   "hiero-operator-id": "0.0.00000000",
   "hiero-operator-key": "xxxxx71684d9c60eb28898de0e1448104df62f604867110db1d6250c6f9cbf191",
-  "telemetry-public-key": ""bff6b88616a06e7e"bff6b886226"bff6b88604a8b"bff6b886cdadcbff6b886"
+  "telemetry-public-key": "bff6b88616a06e7e"bff6b886226"bff6b88604a8b"bff6b886cdadcbff6b886"
 }
 
 ```
