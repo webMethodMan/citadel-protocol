@@ -192,3 +192,14 @@ echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-
 ## Security
 
 This project is in Milestone v0.1.0. All sensitive tool calls MUST be notarized via the `verify_and_gate` function to ensure technical integrity and hardware-rooted trust.
+
+## Research & Academic Citations
+
+The Citadel Protocol is the formal reference implementation of a dual-stack architecture for hardware-enforced agentic governance. For the deep-dive theoretical models, taxonomies, and cryptographic foundations, refer to the following published papers:
+
+*   **The Citadel Protocol — A Reference Architecture for Hardware-Enforced Agentic Governance**  
+    *Digital Object Identifier:* [https://doi.org/10.5281/zenodo.18472859](https://doi.org/10.5281/zenodo.18472859)
+*   **Fusing Ledger-Based Proof of Reasoning with Hardware Roots of Trust**  
+    *Digital Object Identifier:* [https://doi.org/10.5281/zenodo.19431105](https://doi.org/10.5281/zenodo.19431105)
+
+If you are leveraging this framework in an academic or corporate research setting, please cite the blueprints above.
