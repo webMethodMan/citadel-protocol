@@ -2,6 +2,28 @@
 
 In an era of autonomous agents, the Citadel Protocol acts as a deterministic gatekeeper — a Silicon Airlock for AI agents to interact with legacy systems only after intent has been cryptographically notarized by a Trusted Execution Environment (TEE).
 
+## Executive Vision: The Sovereign Spine
+
+The Citadel Protocol resolves the inherent instability of "software hope" (probabilistic, non-deterministic AI) by enforcing a deterministic governance framework anchored in hardware. By fusing ledger-based proof of reasoning with hardware roots of trust, Citadel provides a forensic-grade audit trail and an instantaneous admissibility gate for agentic workloads.
+
+---
+
+## Getting Started (Quick Start)
+Developers can simulate the environment without requiring specialized hardware by utilizing the `MockProvider`.
+
+1. **Prerequisites**
+   * Rust 1.75+
+   * Intel TDX enabled hardware (or `MockProvider` for development)
+   * A valid Hedera Account (Testnet or Mainnet) for evidence notarization.
+
+2. **Build**
+   ```bash
+   ./release.sh
+
+3. **run**
+   ```bash
+   echo '{...}' | ./target/debug/citadel-mcp-server --logic notary --transport mcp-stdio --lifecycle ephemeral --ve-threshold 0.95
+
 ## Architectural Foundations (The Dual-Topic Model)
 
 To achieve sub-10ms verification latency on public ledgers without a local database, Citadel employs a **Dual-Topic Domain Boundary** architecture on the Hedera Consensus Service (HCS):
