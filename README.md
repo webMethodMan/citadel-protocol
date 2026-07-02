@@ -88,7 +88,7 @@ Citadel enforces a **Capability-Based Admissibility Gate** to prevent the execut
 
 * **Execution Velocity (V_e) Decay**: A telemetry metric measuring model stability.
 * **Source-Signed Telemetry (Airgap Integrity)**: Telemetry is signed at the source (MTCP Measurement Node). The host machine acts as a dumb pipe; the signature is verified **inside the TEE** to prevent Layer 2 spoofing.
-* **Deterministic Synthesis**: The system enforces a strictly deterministic check ($\text{Current\_MTCP\_Decay} \ge \text{Sankalpa\_Max\_Decay}$). This comparison is abstracted into the `PolicyComparator` trait and executed in the `no_std` core.
+* **Deterministic Synthesis**: The system enforces a strictly deterministic check ({Current\_MTCP\_Decay} >= {Sankalpa_Max_Decay}). This comparison is abstracted into the `PolicyComparator` trait and executed in the `no_std` core.
 * **Cryptographic Binding**: The V_e decay, authority identity, and workload integrity hash are structurally bound to the intent payload and hashed together inside the TEE.
 
 ## The WORM WELD (Evidence Notarization)
